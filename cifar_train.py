@@ -26,7 +26,7 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
-parser.add_argument('--dataset', default='cifar10', help='dataset setting')
+parser.add_argument('--dataset', default='cifar100', help='dataset setting')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     choices=model_names,
                     help='model architecture: ' +
@@ -54,7 +54,7 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
 parser.add_argument('--wd', '--weight-decay', default=2e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
-parser.add_argument('-p', '--print-freq', default=10, type=int,
+parser.add_argument('-p', '--print-freq', default=50, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -64,7 +64,7 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
-parser.add_argument('--gpu', default=None, type=int,
+parser.add_argument('--gpu', default=0, type=int,
                     help='GPU id to use.')
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
@@ -74,6 +74,10 @@ best_acc1 = 0
 def main():
     args = parser.parse_args()
     args.store_name = '_'.join([args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str])
+    print('\n=====================================================================')
+    print(args.store_name)
+    print('=====================================================================\n')
+
     prepare_folders(args)
     if args.seed is not None:
         random.seed(args.seed)
@@ -151,11 +155,11 @@ def main_worker(gpu, ngpus_per_node, args):
     ])
 
     if args.dataset == 'cifar10':
-        train_dataset = IMBALANCECIFAR10(root='./data', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_val)
+        train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+        val_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=False, download=True, transform=transform_val)
     elif args.dataset == 'cifar100':
-        train_dataset = IMBALANCECIFAR100(root='./data', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR100(root='./data', train=False, download=True, transform=transform_val)
+        train_dataset = IMBALANCECIFAR100(root='./data/CIFAR100', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+        val_dataset = datasets.CIFAR100(root='./data/CIFAR100', train=False, download=True, transform=transform_val)
     else:
         warnings.warn('Dataset is not listed')
         return
@@ -186,23 +190,17 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.train_rule == 'None':
             train_sampler = None  
             per_cls_weights = None 
-        elif args.train_rule == 'Resample':
-            train_sampler = ImbalancedDatasetSampler(train_dataset)
-            per_cls_weights = None
-        elif args.train_rule == 'Reweight':
+        elif args.train_rule == 'EffectiveNumber':
             train_sampler = None
             beta = 0.9999
             effective_num = 1.0 - np.power(beta, cls_num_list)
             per_cls_weights = (1.0 - beta) / np.array(effective_num)
             per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
             per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
-        elif args.train_rule == 'DRW':
-            train_sampler = None
-            idx = epoch // 160
-            betas = [0, 0.9999]
-            effective_num = 1.0 - np.power(betas[idx], cls_num_list)
-            per_cls_weights = (1.0 - betas[idx]) / np.array(effective_num)
-            per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
+        elif args.train_rule == 'ClassBlance':
+            train_sampler = None  
+            per_cls_weights = 1.0 / cls_num_list
+            per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
             per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
         else:
             warnings.warn('Sample rule is not listed')
@@ -243,6 +241,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer):
+    print(args.store_name)
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -268,8 +267,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
-        top1.update(acc1[0], input.size(0))
-        top5.update(acc5[0], input.size(0))
+        top1.update(acc1, input.size(0))
+        top5.update(acc5, input.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -281,13 +280,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         end = time.time()
 
         if i % args.print_freq == 0:
-            output = ('Epoch: [{0}][{1}/{2}], lr: {lr:.5f}\t'
+            output = ('Epoch: [{0}/{1}][{2}/{3}], lr: {lr:.5f}\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
-                epoch, i, len(train_loader), batch_time=batch_time,
+                epoch, args.epochs, i, len(train_loader), batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr'] * 0.1))  # TODO
             print(output)
             log.write(output + '\n')
@@ -322,8 +321,8 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
             # measure accuracy and record loss
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
             losses.update(loss.item(), input.size(0))
-            top1.update(acc1[0], input.size(0))
-            top5.update(acc5[0], input.size(0))
+            top1.update(acc1, input.size(0))
+            top5.update(acc5, input.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -348,7 +347,8 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         cls_acc = cls_hit / cls_cnt
         output = ('{flag} Results: Prec@1 {top1.avg:.3f} Prec@5 {top5.avg:.3f} Loss {loss.avg:.5f}'
                 .format(flag=flag, top1=top1, top5=top5, loss=losses))
-        out_cls_acc = '%s Class Accuracy: %s'%(flag,(np.array2string(cls_acc, separator=',', formatter={'float_kind':lambda x: "%.3f" % x})))
+        # out_cls_acc = '%s Class Accuracy: %s'%(flag,(np.array2string(cls_acc, separator=',', formatter={'float_kind':lambda x: "%.3f" % x})))
+        out_cls_acc = '{} Class Accuracy: \n {}'.format(flag, np.array2string(cls_acc, separator='\t', formatter={'float_kind':lambda x: "%.3f" % x}))
         print(output)
         print(out_cls_acc)
         if log is not None:

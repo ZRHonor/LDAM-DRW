@@ -35,7 +35,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
 parser.add_argument('--loss_type', default="CE", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=0.01, type=float, help='imbalance factor')
-parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
+parser.add_argument('--train_rule', default='ClassBlance', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -186,7 +186,7 @@ def main_worker(gpu, ngpus_per_node, args):
     tf_writer = SummaryWriter(log_dir=os.path.join(args.root_log, args.store_name))
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
-
+        # TAG Init train rule
         if args.train_rule == 'None':
             train_sampler = None  
             per_cls_weights = None 
@@ -199,12 +199,18 @@ def main_worker(gpu, ngpus_per_node, args):
             per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
         elif args.train_rule == 'ClassBlance':
             train_sampler = None  
-            per_cls_weights = 1.0 / cls_num_list
+            per_cls_weights = 1.0 / np.array(cls_num_list)
+            per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
+            per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
+        elif args.train_rule == 'ClassBlanceV2':
+            train_sampler = None  
+            per_cls_weights = 1.0 / np.power(np.array(cls_num_list), 0.25)
             per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
             per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
         else:
             warnings.warn('Sample rule is not listed')
         
+        # TAG Init loss
         if args.loss_type == 'CE':
             criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
         elif args.loss_type == 'LDAM':
@@ -287,7 +293,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                 epoch, args.epochs, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr'] * 0.1))  # TODO
+                data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr'] * 0.1))
             print(output)
             log.write(output + '\n')
             log.flush()

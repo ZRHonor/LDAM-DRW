@@ -43,3 +43,30 @@ class LDAMLoss(nn.Module):
     
         output = torch.where(index, x_m, x)
         return F.cross_entropy(self.s*output, target, weight=self.weight)
+
+class GHMcLoss(nn.Module):
+    # TODO GHMcLoss
+    def __init__(self, weight=None, gamma=0.):
+        super(GHMcLoss, self).__init__()
+        pass
+
+    def forward(self, x, target):
+        return 0
+
+class GroupGHMcLoss(nn.Module):
+    # TODO GroupGHMcLoss
+    def __init__(self, weight=None, gamma=0.):
+        super(GroupGHMcLoss, self).__init__()
+        pass
+
+    def forward(self, x, target):
+        return 0
+
+class SeesawLoss(nn.Module):
+    # TODO SeesawLoss
+    def __init__(self, weight=None, gamma=0.):
+        super(SeesawLoss, self).__init__()
+        pass
+
+    def forward(self, x, target):
+        return 0

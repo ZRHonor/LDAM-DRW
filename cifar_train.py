@@ -34,9 +34,9 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="Seesaw", type=str, help='loss type')
+parser.add_argument('--loss_type', default="GHMc", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=1, type=float, help='imbalance factor')
+parser.add_argument('--imb_factor', default=1, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
@@ -64,7 +64,7 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('--seed', default=None, type=int,
+parser.add_argument('--seed', default=1234, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=0, type=int,
                     help='GPU id to use.')
@@ -76,6 +76,7 @@ best_acc1 = 0
 def main():
     args = parser.parse_args()
     args.store_name = '_'.join([args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str])
+    args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)
     print('=====================================================================\n')
@@ -186,48 +187,51 @@ def main_worker(gpu, ngpus_per_node, args):
     with open(os.path.join(args.root_log, args.store_name, 'args.txt'), 'w') as f:
         f.write(str(args))
     tf_writer = SummaryWriter(log_dir=os.path.join(args.root_log, args.store_name))
+
+    # TAG Init train rule
+    if args.train_rule == 'None':
+        train_sampler = None  
+        per_cls_weights = None 
+    elif args.train_rule == 'EffectiveNumber':
+        train_sampler = None
+        beta = 0.9999
+        effective_num = 1.0 - np.power(beta, cls_num_list)
+        per_cls_weights = (1.0 - beta) / np.array(effective_num)
+        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
+        per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
+    elif args.train_rule == 'ClassBlance':
+        train_sampler = None  
+        per_cls_weights = 1.0 / np.array(cls_num_list)
+        per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
+        per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
+    elif args.train_rule == 'ClassBlanceV2':
+        train_sampler = None  
+        per_cls_weights = 1.0 / np.power(np.array(cls_num_list), 0.25)
+        per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
+        per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
+    else:
+        warnings.warn('Sample rule is not listed')
+    
+    # TAG Init loss
+    if args.loss_type == 'CE':
+        criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
+    elif args.loss_type == 'LDAM':
+        criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
+    elif args.loss_type == 'Focal':
+        criterion = FocalLoss(weight=per_cls_weights, gamma=1).cuda(args.gpu)
+    elif args.loss_type == 'Seesaw':
+        criterion = SeesawLoss(num_classes=num_classes)
+    elif args.loss_type == 'Seesaw_prior':
+        criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
+    elif args.loss_type == 'GHMc':
+        criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda()
+    else:
+        warnings.warn('Loss type is not listed')
+        return
+
+
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
-        # TAG Init train rule
-        if args.train_rule == 'None':
-            train_sampler = None  
-            per_cls_weights = None 
-        elif args.train_rule == 'EffectiveNumber':
-            train_sampler = None
-            beta = 0.9999
-            effective_num = 1.0 - np.power(beta, cls_num_list)
-            per_cls_weights = (1.0 - beta) / np.array(effective_num)
-            per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
-            per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
-        elif args.train_rule == 'ClassBlance':
-            train_sampler = None  
-            per_cls_weights = 1.0 / np.array(cls_num_list)
-            per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
-            per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
-        elif args.train_rule == 'ClassBlanceV2':
-            train_sampler = None  
-            per_cls_weights = 1.0 / np.power(np.array(cls_num_list), 0.25)
-            per_cls_weights = per_cls_weights/ np.mean(per_cls_weights)
-            per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
-        else:
-            warnings.warn('Sample rule is not listed')
-        
-        # TAG Init loss
-        if args.loss_type == 'CE':
-            criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
-        elif args.loss_type == 'LDAM':
-            criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
-        elif args.loss_type == 'Focal':
-            criterion = FocalLoss(weight=per_cls_weights, gamma=1).cuda(args.gpu)
-        elif args.loss_type == 'Seesaw':
-            criterion = SeesawLoss(num_classes=num_classes)
-        elif args.loss_type == 'Seesaw_prior':
-            criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
-        elif args.loss_type == 'GHMc':
-            criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda()
-        else:
-            warnings.warn('Loss type is not listed')
-            return
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, log_training, tf_writer)
@@ -311,6 +315,22 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     tf_writer.add_scalar('acc/train_top5', top5.avg, epoch)
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
 
+    
+    if args.loss_type == 'GHMc':
+        # bins = len(criterion.acc_sum.tolist())
+        limits = np.arange(0,30,1)/30
+        tf_writer.add_histogram_raw(
+            'Hist_in_GHM',
+            min=0,
+            max=30,
+            num=0,
+            sum=0,
+            sum_squares=0,
+            bucket_limits=limits.tolist(),  # <- note here.
+            bucket_counts=criterion.acc_sum.cpu().numpy().tolist(),
+            global_step=epoch
+        )
+
 def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None, flag='val'):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -374,12 +394,23 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         tf_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
+        limits = np.linspace(0,100,100)
+        tf_writer.add_histogram_raw(
+            'acc_per_class',
+            min=0,
+            max=100,
+            num=cls_acc.sum()*100,
+            sum=0,
+            sum_squares=0,
+            bucket_limits=limits.tolist(),  # <- note here.
+            bucket_counts=(cls_acc*100*0.3).tolist(),
+            global_step=epoch
+        )
         fig = plt.figure()
         plt.plot(cls_acc)
-        tf_writer.add_figure('total_acc', fig)
-        # plt.show()
+        tf_writer.add_figure('total_acc'.format(epoch), fig, epoch)
 
-        # tf_writer.add_histogram('acc/test_' + flag + 'all_acc', cls_acc, epoch)
+        
 
     return top1.avg
 

@@ -3,6 +3,7 @@ data/
 .history/
 checkpoint/
 log/
+runs/
 *.pdf
 
 # IPython notebook checkpoints

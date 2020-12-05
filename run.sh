@@ -58,21 +58,21 @@
 # done
 
 
-# dataset=cifar100
-# loss_type=Seesaw
-# train_rule=None
+dataset=cifar100
+loss_type=Seesaw
+train_rule=None
 
-# for imb_factor in 0.1 0.01
-# do
-#     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
-# done
+for imb_factor in 1
+do
+    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule --seed 123
+done
 
 
 dataset=cifar100
 loss_type=GHMc
 train_rule=None
 
-for imb_factor in 1 
+for imb_factor in 100 10 1
 do
     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
 done

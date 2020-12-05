@@ -19,7 +19,9 @@ from tensorboardX import SummaryWriter
 from sklearn.metrics import confusion_matrix
 from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
-from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior
+from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss
+
+import matplotlib.pyplot as plt
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -221,6 +223,8 @@ def main_worker(gpu, ngpus_per_node, args):
             criterion = SeesawLoss(num_classes=num_classes)
         elif args.loss_type == 'Seesaw_prior':
             criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
+        elif args.loss_type == 'GHMc':
+            criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda()
         else:
             warnings.warn('Loss type is not listed')
             return
@@ -370,6 +374,12 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         tf_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
+        fig = plt.figure()
+        plt.plot(cls_acc)
+        tf_writer.add_figure('total_acc', fig)
+        # plt.show()
+
+        # tf_writer.add_histogram('acc/test_' + flag + 'all_acc', cls_acc, epoch)
 
     return top1.avg
 
@@ -388,4 +398,5 @@ def adjust_learning_rate(optimizer, epoch, args):
         param_group['lr'] = lr
 
 if __name__ == '__main__':
+    plt.switch_backend('agg')
     main()

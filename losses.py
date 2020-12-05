@@ -103,9 +103,11 @@ class GHMcLoss(nn.Module):
             loss = F.binary_cross_entropy_with_logits(
                 pred, target, weights, reduction='sum') / tot
         else:
-            # TODO GHMc without sigmoid
-            loss = F.binary_cross_entropy_with_logits(
-                pred, target, weights, reduction='sum') / tot
+            # TODO GHMc without 
+            loss = F.cross_entropy(input, target, reduction='none')
+            
+            # loss = F.binary_cross_entropy_with_logits(
+            #     pred, target, weights, reduction='sum') / tot
         return loss * self.loss_weight
 
 class GroupGHMcLoss(nn.Module):

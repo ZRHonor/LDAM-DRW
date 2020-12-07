@@ -19,7 +19,7 @@ from tensorboardX import SummaryWriter
 from sklearn.metrics import confusion_matrix
 from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
-from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss
+from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
 
 import matplotlib.pyplot as plt
 
@@ -34,7 +34,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="GHMc", type=str, help='loss type')
+parser.add_argument('--loss_type', default="SeesawGHMc", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=1, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -225,6 +225,14 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
     elif args.loss_type == 'GHMc':
         criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda()
+    elif args.loss_type == 'SoftmaxGHMc':
+        criterion = SoftmaxGHMc(bins=30, momentum=0.75).cuda()
+    elif args.loss_type == 'SoftmaxGHMcV2':
+        criterion = SoftmaxGHMcV2(bins=30, momentum=0.75).cuda()
+    elif args.loss_type == 'SoftmaxGHMcV3':
+        criterion = SoftmaxGHMcV3(bins=30, momentum=0.75).cuda()
+    elif args.loss_type == 'SeesawGHMc':
+        criterion = SeesawGHMc(bins=30, momentum=0.75).cuda()
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -305,7 +313,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'Prec@5 {top5.val:.3f} ({top5.avg:.3f})'.format(
                 epoch, args.epochs, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr'] * 0.1))
+                data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr']))
             print(output)
             log.write(output + '\n')
             log.flush()
@@ -316,18 +324,34 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
 
     
-    if args.loss_type == 'GHMc':
+    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
         # bins = len(criterion.acc_sum.tolist())
         limits = np.arange(0,30,1)/30
+        accsum = criterion.acc_sum.cpu().numpy()
+        accsum = accsum/np.sum(accsum)
         tf_writer.add_histogram_raw(
             'Hist_in_GHM',
             min=0,
-            max=30,
+            max=1,
             num=0,
             sum=0,
             sum_squares=0,
             bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=criterion.acc_sum.cpu().numpy().tolist(),
+            bucket_counts=accsum.tolist(),
+            global_step=epoch
+        )
+        accsum = np.log(accsum+1e-8)
+        accsum = accsum-np.min(accsum)
+        accsum = accsum/np.sum(accsum)
+        tf_writer.add_histogram_raw(
+            'LOGHist_in_GHM',
+            min=0,
+            max=1,
+            num=0,
+            sum=0,
+            sum_squares=0,
+            bucket_limits=limits.tolist(),  # <- note here.
+            bucket_counts=accsum.tolist(),
             global_step=epoch
         )
 

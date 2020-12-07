@@ -71,6 +71,7 @@ class GHMcLoss(nn.Module):
         self.loss_weight = loss_weight
 
     def forward(self, pred, target):
+        ori_target = target
         label_weight = torch.ones_like(target)
         if pred.dim() != target.dim():
             target, label_weight = _expand_onehot_labels(
@@ -104,11 +105,154 @@ class GHMcLoss(nn.Module):
                 pred, target, weights, reduction='sum') / tot
         else:
             # TODO GHMc without 
-            loss = F.cross_entropy(input, target, reduction='none')
-            
+            loss = F.cross_entropy(pred, ori_target, reduction='none')
+
             # loss = F.binary_cross_entropy_with_logits(
             #     pred, target, weights, reduction='sum') / tot
         return loss * self.loss_weight
+
+class SoftmaxGHMc(nn.Module):
+    def __init__(self, bins=10, momentum=0, use_sigmoid=False, loss_weight=1.0):
+        super(SoftmaxGHMc, self).__init__()
+        self.bins = bins
+        self.momentum = momentum
+        edges = torch.arange(bins + 1).float() / bins
+        self.register_buffer('edges', edges)
+        self.edges[-1] += 1e-6
+        if momentum > 0:
+            acc_sum = torch.zeros(bins)
+            self.register_buffer('acc_sum', acc_sum)
+        self.use_sigmoid = use_sigmoid
+        # if not self.use_sigmoid:
+        #     raise NotImplementedError
+        self.loss_weight = loss_weight
+    
+    def forward(self, pred, target):
+        weights = torch.zeros_like(target).float()
+        values = F.cross_entropy(pred, target, reduction='none')
+        values_clip = values.clone().detach()
+        values_clip = values_clip / torch.max(values_clip)
+        # values_clip[values_clip>1]=1-1e-6
+        # valid = (values>0)
+        tot = values.shape[0]
+        n = 0
+
+        edges = self.edges
+        mmt = self.momentum
+
+        for i in range(self.bins):
+            inds = (values_clip >= edges[i]) & (values_clip < edges[i + 1])
+            num_in_bin = inds.sum().item()
+            if num_in_bin > 0:
+                if mmt > 0:
+                    self.acc_sum[i] = mmt * self.acc_sum[i] \
+                        + (1 - mmt) * num_in_bin
+                    weights[inds] = tot / self.acc_sum[i]
+                else:
+                    weights[inds] = tot / num_in_bin
+                n += 1
+        if n > 0:
+            weights = weights / n
+        weights /= tot
+        loss = weights * values
+        return loss.sum()
+
+
+class SoftmaxGHMcV2(nn.Module):
+    def __init__(self, bins=10, momentum=0, use_sigmoid=False, loss_weight=1.0):
+        super(SoftmaxGHMcV2, self).__init__()
+        self.bins = bins
+        self.momentum = momentum
+        edges = torch.arange(bins + 1).float() / bins
+        self.register_buffer('edges', edges)
+        self.edges[-1] += 1e-6
+        if momentum > 0:
+            acc_sum = torch.zeros(bins)
+            self.register_buffer('acc_sum', acc_sum)
+        self.use_sigmoid = use_sigmoid
+        # if not self.use_sigmoid:
+        #     raise NotImplementedError
+        self.loss_weight = loss_weight
+    
+    def forward(self, pred, target):
+        weights = torch.zeros_like(target).float()
+        values = F.cross_entropy(pred, target, reduction='none')
+        values_clip = values.clone().detach()
+        values_clip = 1 - torch.exp(-values_clip)
+        # values_clip = values_clip / torch.max(values_clip)
+        # values_clip[values_clip>1]=1-1e-6
+        # valid = (values>0)
+        tot = values.shape[0]
+        n = 0
+
+        edges = self.edges
+        mmt = self.momentum
+
+        for i in range(self.bins):
+            inds = (values_clip >= edges[i]) & (values_clip < edges[i + 1])
+            num_in_bin = inds.sum().item()
+            if num_in_bin > 0:
+                if mmt > 0:
+                    self.acc_sum[i] = mmt * self.acc_sum[i] \
+                        + (1 - mmt) * num_in_bin
+                    weights[inds] = tot / self.acc_sum[i]
+                else:
+                    weights[inds] = tot / num_in_bin
+                n += 1
+        if n > 0:
+            weights = weights / n
+        weights /= tot
+        loss = weights * values
+        return loss.sum()
+
+
+class SoftmaxGHMcV3(nn.Module):
+    def __init__(self, bins=10, momentum=0, use_sigmoid=False, loss_weight=1.0):
+        super(SoftmaxGHMcV3, self).__init__()
+        self.bins = bins
+        self.momentum = momentum
+        edges = torch.arange(bins + 1).float() / bins
+        self.register_buffer('edges', edges)
+        self.edges[-1] += 1e-6
+        if momentum > 0:
+            acc_sum = torch.zeros(bins)
+            self.register_buffer('acc_sum', acc_sum)
+        self.use_sigmoid = use_sigmoid
+        # if not self.use_sigmoid:
+        #     raise NotImplementedError
+        self.loss_weight = loss_weight
+    
+    def forward(self, pred, target):
+        weights = torch.zeros_like(target).float()
+
+        target_onehot = F.one_hot(target.clone().detach(), pred.shape[1])
+
+        g = torch.abs(F.softmax(pred, dim=1) - target_onehot)*target_onehot
+        g = g.sum(1)
+
+        tot = g.shape[0]
+        n = 0
+
+        edges = self.edges
+        mmt = self.momentum
+
+        for i in range(self.bins):
+            inds = (g >= edges[i]) & (g < edges[i + 1])
+            num_in_bin = inds.sum().item()
+            if num_in_bin > 0:
+                if mmt > 0:
+                    self.acc_sum[i] = mmt * self.acc_sum[i] \
+                        + (1 - mmt) * num_in_bin
+                    weights[inds] = tot / self.acc_sum[i]
+                else:
+                    weights[inds] = tot / num_in_bin
+                n += 1
+        if n > 0:
+            weights = weights / n
+        weights /= tot
+        loss = weights * F.cross_entropy(pred, target, reduction='none')
+        return loss.sum()
+
 
 class GroupGHMcLoss(nn.Module):
     # TODO GroupGHMcLoss
@@ -177,4 +321,51 @@ class SeesawLoss(nn.Module):
         softmax_x = F.softmax(weighted_x, 1)
         
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
+        return loss
+
+
+class SeesawGHMc(nn.Module):
+    def __init__(self, bins=10, momentum=0, loss_weight=1.0):
+        super(SeesawGHMc, self).__init__()
+        self.bins = bins
+        self.momentum = momentum
+        edges = torch.arange(bins + 1).float() / bins
+        self.register_buffer('edges', edges)
+        self.edges[-1] += 1e-6
+        if momentum > 0:
+            acc_sum = torch.zeros(bins)
+            self.register_buffer('acc_sum', acc_sum)
+        self.loss_weight = loss_weight
+
+    def forward(self, x, target):
+        weights = torch.zeros_like(x)
+        target_onehot = F.one_hot(target, num_classes=x.shape[1]).float()
+        edges = self.edges
+        mmt = self.momentum
+
+        # gradient length
+        g = torch.abs(x.sigmoid().detach() - target_onehot)
+        tot = 1
+        n = 0  # n valid bins
+        for i in range(self.bins):
+            inds = (g >= edges[i]) & (g < edges[i + 1])
+            num_in_bin = inds.sum().item()
+            if num_in_bin > 0:
+                if mmt > 0:
+                    self.acc_sum[i] = mmt * self.acc_sum[i] \
+                        + (1 - mmt) * num_in_bin
+                    weights[inds] = tot / self.acc_sum[i]
+                else:
+                    weights[inds] = tot / num_in_bin
+                n += 1
+        if n > 0:
+            weights = weights / n
+        weights /= tot
+        # weights = weights/((weights*target_onehot).sum(1).repeat()÷
+        weights = torch.div(weights,(weights*target_onehot).sum(1).reshape(-1,1))
+        # weights[weights>1]=1
+        weighted_x = x + torch.log(weights)
+        softmax_x = F.softmax(weighted_x, 1)
+        
+        loss = -torch.sum(target_onehot * torch.log(softmax_x))/x.shape[0]
         return loss

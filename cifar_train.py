@@ -420,15 +420,12 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         tf_writer.add_scalar('loss/test_'+ flag, losses.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
-        temp = {'frequent':np.mean(cls_acc[0:25]),
-                'comman':np.mean(cls_acc[25:50]),
-                'rare':np.mean(cls_acc[50:75]),
-                'tail':np.mean(cls_acc[75:])}
-        tf_writer.add_scalar('mean_acc/test_' + flag + '_acc_', temp, epoch)
-        # tf_writer.add_scalar('acc/test_' + flag + '_acc_frequent', , epoch)
-        # tf_writer.add_scalar('acc/test_' + flag + '_acc_comman', , epoch)
-        # tf_writer.add_scalar('acc/test_' + flag + '_acc_rare', , epoch)
-        # tf_writer.add_scalar('acc/test_' + flag + '_acc_tail', , epoch)
+        temp = {'fre1':np.mean(cls_acc[0:25]),
+                'fre2':np.mean(cls_acc[25:50]),
+                'fre3':np.mean(cls_acc[50:75]),
+                'fre4':np.mean(cls_acc[75:])}
+        print(temp)
+        tf_writer.add_scalars('acc_mean/test_' + flag + '_acc_', temp, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
         limits = np.linspace(0,100,100)
         tf_writer.add_histogram_raw(

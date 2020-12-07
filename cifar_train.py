@@ -20,6 +20,7 @@ from sklearn.metrics import confusion_matrix
 from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
+from losses import SoftSeesawLoss
 
 import matplotlib.pyplot as plt
 
@@ -34,7 +35,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="SeesawGHMc", type=str, help='loss type')
+parser.add_argument('--loss_type', default="SoftSeesaw", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -221,6 +222,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = FocalLoss(weight=per_cls_weights, gamma=1).cuda(args.gpu)
     elif args.loss_type == 'Seesaw':
         criterion = SeesawLoss(num_classes=num_classes)
+    elif args.loss_type == 'SoftSeesaw':
+        criterion = SoftSeesawLoss(num_classes=num_classes)
     elif args.loss_type == 'Seesaw_prior':
         criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
     elif args.loss_type == 'GHMc':
@@ -417,6 +420,15 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         tf_writer.add_scalar('loss/test_'+ flag, losses.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
+        temp = {'frequent':np.mean(cls_acc[0:25]),
+                'comman':np.mean(cls_acc[25:50]),
+                'rare':np.mean(cls_acc[50:75]),
+                'tail':np.mean(cls_acc[75:])}
+        tf_writer.add_scalar('mean_acc/test_' + flag + '_acc_', temp, epoch)
+        # tf_writer.add_scalar('acc/test_' + flag + '_acc_frequent', , epoch)
+        # tf_writer.add_scalar('acc/test_' + flag + '_acc_comman', , epoch)
+        # tf_writer.add_scalar('acc/test_' + flag + '_acc_rare', , epoch)
+        # tf_writer.add_scalar('acc/test_' + flag + '_acc_tail', , epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
         limits = np.linspace(0,100,100)
         tf_writer.add_histogram_raw(
@@ -433,8 +445,6 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         fig = plt.figure()
         plt.plot(cls_acc)
         tf_writer.add_figure('total_acc'.format(epoch), fig, epoch)
-
-        
 
     return top1.avg
 

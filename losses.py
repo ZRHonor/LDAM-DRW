@@ -157,7 +157,6 @@ class SoftmaxGHMc(nn.Module):
         loss = weights * values
         return loss.sum()
 
-
 class SoftmaxGHMcV2(nn.Module):
     def __init__(self, bins=10, momentum=0, use_sigmoid=False, loss_weight=1.0):
         super(SoftmaxGHMcV2, self).__init__()
@@ -205,7 +204,6 @@ class SoftmaxGHMcV2(nn.Module):
         loss = weights * values
         return loss.sum()
 
-
 class SoftmaxGHMcV3(nn.Module):
     def __init__(self, bins=10, momentum=0, use_sigmoid=False, loss_weight=1.0):
         super(SoftmaxGHMcV3, self).__init__()
@@ -252,7 +250,6 @@ class SoftmaxGHMcV3(nn.Module):
         weights /= tot
         loss = weights * F.cross_entropy(pred, target, reduction='none')
         return loss.sum()
-
 
 class GroupGHMcLoss(nn.Module):
     # TODO GroupGHMcLoss
@@ -323,7 +320,6 @@ class SeesawLoss(nn.Module):
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
 
-
 class SeesawGHMc(nn.Module):
     def __init__(self, bins=10, momentum=0, loss_weight=1.0):
         super(SeesawGHMc, self).__init__()
@@ -361,9 +357,8 @@ class SeesawGHMc(nn.Module):
         if n > 0:
             weights = weights / n
         weights /= tot
-        # weights = weights/((weights*target_onehot).sum(1).repeat()÷
-        weights = torch.div(weights,(weights*target_onehot).sum(1).reshape(-1,1))
-        # weights[weights>1]=1
+        weights = 1.0/torch.div(weights,(weights*target_onehot).sum(1).reshape(-1,1))
+        weights[weights>1]=1
         weighted_x = x + torch.log(weights)
         softmax_x = F.softmax(weighted_x, 1)
         

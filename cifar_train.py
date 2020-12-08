@@ -35,9 +35,9 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="SoftSeesaw", type=str, help='loss type')
+parser.add_argument('--loss_type', default="Seesaw", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
+parser.add_argument('--imb_factor', default=10, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
@@ -76,7 +76,7 @@ best_acc1 = 0
 
 def main():
     args = parser.parse_args()
-    args.store_name = '_'.join([args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str])
+    args.store_name = '_'.join([args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)
@@ -227,28 +227,29 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'Seesaw_prior':
         criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
     elif args.loss_type == 'GHMc':
-        criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda()
+        criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMc':
-        criterion = SoftmaxGHMc(bins=30, momentum=0.75).cuda()
+        criterion = SoftmaxGHMc(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMcV2':
-        criterion = SoftmaxGHMcV2(bins=30, momentum=0.75).cuda()
+        criterion = SoftmaxGHMcV2(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMcV3':
-        criterion = SoftmaxGHMcV3(bins=30, momentum=0.75).cuda()
+        criterion = SoftmaxGHMcV3(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SeesawGHMc':
-        criterion = SeesawGHMc(bins=30, momentum=0.75).cuda()
+        criterion = SeesawGHMc(bins=30, momentum=0.75).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
 
-
+    valid_criterion = nn.CrossEntropyLoss().cuda(args.gpu)
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, log_training, tf_writer)
+        # print(criterion.cls_num_list.transpose(1,0))
         
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, epoch, args, log_testing, tf_writer)
+        acc1 = validate(val_loader, model, valid_criterion, epoch, args, log_testing, tf_writer)
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -357,6 +358,35 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
             bucket_counts=accsum.tolist(),
             global_step=epoch
         )
+    elif args.loss_type in ['Seesaw', 'SoftSeesaw']:
+        limits = np.arange(0,100,1)
+        accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
+        accsum = accsum/np.sum(accsum)
+        tf_writer.add_histogram_raw(
+            'Hist_in_GHM',
+            min=0,
+            max=100,
+            num=0,
+            sum=0,
+            sum_squares=0,
+            bucket_limits=limits.tolist(),  # <- note here.
+            bucket_counts=accsum.tolist(),
+            global_step=epoch
+        )
+        accsum = np.log(accsum+1e-8)
+        accsum = accsum-np.min(accsum)
+        accsum = accsum/np.sum(accsum)
+        tf_writer.add_histogram_raw(
+            'LOGHist_in_GHM',
+            min=0,
+            max=100,
+            num=0,
+            sum=0,
+            sum_squares=0,
+            bucket_limits=limits.tolist(),  # <- note here.
+            bucket_counts=accsum.tolist(),
+            global_step=epoch
+        )
 
 def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None, flag='val'):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -410,21 +440,24 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
                 .format(flag=flag, top1=top1, top5=top5, loss=losses))
         # out_cls_acc = '%s Class Accuracy: %s'%(flag,(np.array2string(cls_acc, separator=',', formatter={'float_kind':lambda x: "%.3f" % x})))
         out_cls_acc = '{} Class Accuracy: \n {}'.format(flag, np.array2string(cls_acc, separator='\t', formatter={'float_kind':lambda x: "%.3f" % x}))
+        temp = {'fre1':np.mean(cls_acc[0:25]),
+                'fre2':np.mean(cls_acc[25:50]),
+                'fre3':np.mean(cls_acc[50:75]),
+                'fre4':np.mean(cls_acc[75:])}
+        
         print(output)
         print(out_cls_acc)
+        print(temp)
         if log is not None:
             log.write(output + '\n')
             log.write(out_cls_acc + '\n')
+            log.write(str(temp)+'\n')
             log.flush()
 
         tf_writer.add_scalar('loss/test_'+ flag, losses.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top1', top1.avg, epoch)
         tf_writer.add_scalar('acc/test_' + flag + '_top5', top5.avg, epoch)
-        temp = {'fre1':np.mean(cls_acc[0:25]),
-                'fre2':np.mean(cls_acc[25:50]),
-                'fre3':np.mean(cls_acc[50:75]),
-                'fre4':np.mean(cls_acc[75:])}
-        print(temp)
+        
         tf_writer.add_scalars('acc_mean/test_' + flag + '_acc_', temp, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
         limits = np.linspace(0,100,100)

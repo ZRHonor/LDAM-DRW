@@ -1,29 +1,41 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
-# from tensorboardX import SummaryWriter
-
-# pre_class = np.random.random(size=(100))
-
-# limits = np.linspace(0,99,100)
-
-# # dummy_data = []
-# # for idx, value in enumerate(range(30)):
-# #     dummy_data += [idx + 0.001] * value
-# # values = np.array(dummy_data).astype(float).reshape(-1)
-# # counts, limits = np.histogram(values)
-# # sum_sq = values.dot(values)
 
 
-# with SummaryWriter() as summary_writer:
-#     summary_writer.add_histogram_raw(
-#             )
+class GradSeesawLoss(nn.Module):
+    def __init__(self, num_classes, p=0.8):
+        super(GradSeesawLoss, self).__init__()
+        self.num_classes = num_classes
+        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        self.register_buffer('cls_num_list', cls_num_list)
+        self.p = p
 
-# # from losses import SeesawLoss
-# # cls_num_list = []
-# # for i in range(100, 0, -1):
-# #     cls_num_list.append(i)
+        
+    @torch.no_grad()
+    def get_weight_matrix(self):
+        weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        weight_matrix[weight_matrix>1] = 1  
+        weight_matrix = torch.pow(weight_matrix, self.p)
 
-# # loss = SeesawLoss(cls_num_list)
+        weight_matrix = weight_matrix.cuda()
+        return weight_matrix
 
-# print('done')
-
-# a = np.
+    def forward(self, x, target):
+        '''
+        x: b * C
+        '''
+        bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
+        g = torch.abs(x.sigmoid().detach() - target_onehot)
+        # num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().cpu().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().cpu().permute(1,0)
+        self.cls_num_list += num_classes_batch
+        weight_matrix = self.get_weight_matrix()
+        weight = torch.mm(target_onehot, weight_matrix)
+        weighted_x = x + torch.log(weight + g)
+        softmax_x = F.softmax(weighted_x, 1)
+        
+        loss = -torch.sum(target_onehot * torch.log(softmax_x)) / bs
+        return loss

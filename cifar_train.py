@@ -20,7 +20,7 @@ from sklearn.metrics import confusion_matrix
 from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss
 
 import matplotlib.pyplot as plt
 
@@ -222,10 +222,14 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = FocalLoss(weight=per_cls_weights, gamma=1).cuda(args.gpu)
     elif args.loss_type == 'Seesaw':
         criterion = SeesawLoss(num_classes=num_classes)
+    elif args.loss_type == 'GradSeesawLoss':
+        criterion = GradSeesawLoss(num_classes=num_classes)
     elif args.loss_type == 'SoftSeesaw':
         criterion = SoftSeesawLoss(num_classes=num_classes)
     elif args.loss_type == 'Seesaw_prior':
         criterion = SeesawLoss_prior(cls_num_list=cls_num_list)
+    elif args.loss_type == 'GradSeesawLoss_prior':
+        criterion = GradSeesawLoss_prior(cls_num_list=cls_num_list)
     elif args.loss_type == 'GHMc':
         criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMc':

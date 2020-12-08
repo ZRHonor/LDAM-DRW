@@ -57,8 +57,57 @@
 #     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
 # done
 
+# dataset=cifar100
+# loss_type=SoftmaxGHMcV2
+# train_rule=None
+
+# for imb_factor in 100 10 1
+# do
+#     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
+# done
+
 dataset=cifar100
-loss_type=SoftmaxGHMcV2
+loss_type=GradSeesawLoss_prior
+train_rule=None
+
+for imb_factor in 100 10 1
+do
+    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
+done
+
+
+dataset=cifar100
+loss_type=Seesaw_prior
+train_rule=None
+
+for imb_factor in 100 10 1
+do
+    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
+done
+
+
+
+dataset=cifar100
+loss_type=Seesaw
+train_rule=None
+
+for imb_factor in 100 10 1
+do
+    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
+done
+
+dataset=cifar100
+loss_type=GradSeesawLoss
+train_rule=None
+
+for imb_factor in 100 10 1
+do
+    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
+done
+
+
+dataset=cifar100
+loss_type=SoftSeesaw
 train_rule=None
 
 for imb_factor in 100 10 1
@@ -71,31 +120,10 @@ dataset=cifar100
 loss_type=SoftmaxGHMc
 train_rule=None
 
-for imb_factor in 100 10 1
+for imb_factor in 10 1
 do
     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
 done
-
-
-# dataset=cifar100
-# loss_type=Seesaw_prior
-# train_rule=None
-
-# for imb_factor in 100 10 1
-# do
-#     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
-# done
-
-
-dataset=cifar100
-loss_type=Seesaw
-train_rule=None
-
-for imb_factor in 100 10 1
-do
-    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
-done
-
 
 dataset=cifar100
 loss_type=GHMc
@@ -116,14 +144,7 @@ do
     python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
 done
 
-dataset=cifar100
-loss_type=SoftSeesaw
-train_rule=None
 
-for imb_factor in 100 10 1
-do
-    python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule
-done
 
 
 # dataset=cifar100

@@ -409,7 +409,7 @@ class GradSeesawLoss_prior(nn.Module):
         self.num_classes = len(cls_num_list)
         cls_num_list = np.array(cls_num_list).reshape(self.num_classes, 1)
 
-        weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose()
+        weight_matrix = (1.0 / cls_num_list) * cls_num_list.transpose()
         weight_matrix[weight_matrix>1] = 1  
         weight_matrix = np.power(weight_matrix, p)
 

@@ -4,6 +4,7 @@ data/
 checkpoint/
 log/
 runs/
+backup/
 *.pdf
 
 # IPython notebook checkpoints

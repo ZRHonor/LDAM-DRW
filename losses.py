@@ -264,13 +264,14 @@ class SeesawLoss_prior(nn.Module):
     def __init__(self, cls_num_list, p=0.8):
         super(SeesawLoss_prior, self).__init__()
         self.num_classes = len(cls_num_list)
-        self.cls_num_list = np.array(cls_num_list).reshape(self.num_classes, 1)
+        cls_num_list = np.array(cls_num_list).reshape(self.num_classes, 1)
 
-        self.weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose()
-        self.weight_matrix[self.weight_matrix>1] = 1  
-        self.weight_matrix = np.power(self.weight_matrix, p)
+        weight_matrix = (1.0 / cls_num_list) * cls_num_list.transpose()
+        weight_matrix[self.weight_matrix>1] = 1  
+        weight_matrix = np.power(weight_matrix, p)
 
-        self.weight_matrix = torch.FloatTensor(self.weight_matrix).cuda()
+        weight_matrix = torch.FloatTensor(weight_matrix)
+        self.register_buffer('weight_matrix', weight_matrix)
 
 
     def forward(self, x, target):
@@ -347,8 +348,8 @@ class SoftSeesawLoss(nn.Module):
         bs = x.shape[0]
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
         g = torch.abs(x.sigmoid().detach() - target_onehot)
+        # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().cpu().permute(1,0)
         num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().cpu().permute(1,0)
-        # num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().cpu().permute(1,0)
         self.cls_num_list += num_classes_batch
         weight_matrix = self.get_weight_matrix()
         weight = torch.mm(target_onehot, weight_matrix)
@@ -422,7 +423,7 @@ class GradSeesawLoss_prior(nn.Module):
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
         g = torch.abs(x.sigmoid().detach() - target_onehot)
         weight = torch.mm(target_onehot, self.weight_matrix)
-        weighted_x = x + torch.log(weight + g)
+        weighted_x = x + torch.log(weight + (1-g))
         softmax_x = F.softmax(weighted_x, 1)
         
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
@@ -478,7 +479,7 @@ class GradSeesawLoss(nn.Module):
         self.cls_num_list += num_classes_batch
         weight_matrix = self.get_weight_matrix()
         weight = torch.mm(target_onehot, weight_matrix)
-        weighted_x = x + torch.log(weight + g)
+        weighted_x = x + torch.log(weight + (1-g) )
         softmax_x = F.softmax(weighted_x, 1)
         
         loss = -torch.sum(target_onehot * torch.log(softmax_x)) / bs

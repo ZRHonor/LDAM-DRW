@@ -40,9 +40,12 @@ class NormedLinear(nn.Module):
         super(NormedLinear, self).__init__()
         self.weight = Parameter(torch.Tensor(in_features, out_features))
         self.weight.data.uniform_(-1, 1).renorm_(2, 1, 1e-5).mul_(1e5)
+        self.bias = Parameter(torch.Tensor(1, out_features))
+        self.bias.data.fill_(0)
 
     def forward(self, x):
-        out = F.normalize(x, dim=1).mm(F.normalize(self.weight, dim=0))
+        out = F.normalize(x, dim=1).mm(F.normalize(self.weight, dim=0)) + self.bias
+        # out = F.normalize(x, dim=1).mm(F.normalize(self.weight, dim=0))
         return out
 
 class LambdaLayer(nn.Module):

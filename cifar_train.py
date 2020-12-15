@@ -21,7 +21,7 @@ from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss
 
 import matplotlib.pyplot as plt
 
@@ -36,9 +36,9 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="SoftSeesaw", type=str, help='loss type')
+parser.add_argument('--loss_type', default="SoftGradeSeesawLoss", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=200, type=int, help='imbalance factor')
+parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
@@ -70,6 +70,7 @@ parser.add_argument('--seed', default=123, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=0, type=int,
                     help='GPU id to use.')
+parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
 best_acc1 = 0
@@ -77,6 +78,8 @@ best_acc1 = 0
 
 def main():
     args = parser.parse_args()
+    args.pretrained=True
+    args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
     curr_time = datetime.datetime.now()
     args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed)])
     args.imb_factor = 1.0 / args.imb_factor
@@ -113,7 +116,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model '{}'".format(args.arch))
     num_classes = 100 if args.dataset == 'cifar100' else 10
-    use_norm = True if args.loss_type == 'LDAM' else False
+    use_norm = True if args.loss_type in ['LDAM'] else False
     model = models.__dict__[args.arch](num_classes=num_classes, use_norm=use_norm)
 
     if args.gpu is not None:
@@ -228,6 +231,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = GradSeesawLoss(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'SoftSeesaw':
         criterion = SoftSeesawLoss(num_classes=num_classes).cuda(args.gpu)
+    elif args.loss_type == 'SoftGradeSeesawLoss':
+        criterion = SoftGradeSeesawLoss(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'Seesaw_prior':
         criterion = SeesawLoss_prior(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GradSeesawLoss_prior':
@@ -309,6 +314,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1, 2)
         optimizer.step()
 
         # measure elapsed time
@@ -332,6 +338,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     tf_writer.add_scalar('acc/train_top1', top1.avg, epoch)
     tf_writer.add_scalar('acc/train_top5', top5.avg, epoch)
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
+    # tf_writer.add_histogram('linear.weight', model.linear.weight, epoch)
+    # tf_writer.add_histogram('linear.bias', model.linear.bias, epoch)
 
     
     if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
@@ -364,14 +372,14 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
             bucket_counts=accsum.tolist(),
             global_step=epoch
         )
-    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss']:
-        limits = np.arange(0,100,1)
+    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
+        limits = np.arange(0,args.num_classes,1)
         accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
         accsum = accsum/np.sum(accsum)
         tf_writer.add_histogram_raw(
             'cls_num_list',
             min=0,
-            max=100,
+            max=args.num_classes,
             num=0,
             sum=0,
             sum_squares=0,
@@ -385,7 +393,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         tf_writer.add_histogram_raw(
             'LOGcls_num_list',
             min=0,
-            max=100,
+            max=args.num_classes,
             num=0,
             sum=0,
             sum_squares=0,
@@ -446,10 +454,16 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
                 .format(flag=flag, top1=top1, top5=top5, loss=losses))
         # out_cls_acc = '%s Class Accuracy: %s'%(flag,(np.array2string(cls_acc, separator=',', formatter={'float_kind':lambda x: "%.3f" % x})))
         out_cls_acc = '{} Class Accuracy: \n {}'.format(flag, np.array2string(cls_acc, separator='\t', formatter={'float_kind':lambda x: "%.3f" % x}))
-        temp = {'fre1':np.mean(cls_acc[0:25]),
-                'fre2':np.mean(cls_acc[25:50]),
-                'fre3':np.mean(cls_acc[50:75]),
-                'fre4':np.mean(cls_acc[75:])}
+        if args.dataset == 'cifar100':
+            temp = {'fre1':np.mean(cls_acc[0:25]),
+                    'fre2':np.mean(cls_acc[25:50]),
+                    'fre3':np.mean(cls_acc[50:75]),
+                    'fre4':np.mean(cls_acc[75:])}
+        else:
+            temp = {'fre1':np.mean(cls_acc[0:2]),
+                    'fre2':np.mean(cls_acc[2:5]),
+                    'fre3':np.mean(cls_acc[5:8]),
+                    'fre4':np.mean(cls_acc[8:])}
         
         print(output)
         print(out_cls_acc)
@@ -469,7 +483,7 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         
         tf_writer.add_scalars('acc_mean/test_' + flag + '_acc_', temp, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
-        limits = np.linspace(0,100,100)
+        limits = np.arange(0,args.num_classes,1)
         tf_writer.add_histogram_raw(
             'acc_per_class',
             min=0,

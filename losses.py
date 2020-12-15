@@ -3,6 +3,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import sys
+
+def weighted_softmax(x, target, weight):
+    exp_x = torch.exp(x)
+    all_sum = torch.sum(exp_x * weight, dim=1)
+    pred = torch.sum(exp_x * target, dim=1) / all_sum
+    loss = -torch.mean(torch.log(pred))
+    return loss
+
 
 def _expand_onehot_labels(labels, label_weights, label_channels):
     bin_labels = labels.new_full((labels.size(0), label_channels), 0)
@@ -487,9 +496,9 @@ class GradSeesawLoss(nn.Module):
         loss = -torch.sum(target_onehot * torch.log(softmax_x)) / bs
         return loss
 
-class SoftGradeSeesawLoss(nn.Module):
+class SoftGradeSeesawLoss_backup(nn.Module):
     def __init__(self, num_classes, p=0.8):
-        super(SoftGradeSeesawLoss, self).__init__()
+        super(SoftGradeSeesawLoss_backup, self).__init__()
         self.num_classes = num_classes
         cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
         self.register_buffer('cls_num_list', cls_num_list)
@@ -513,4 +522,49 @@ class SoftGradeSeesawLoss(nn.Module):
         weighted_x = x + torch.log(weight * (1+g))
         softmax_x = F.softmax(weighted_x, 1)
         loss = -torch.sum(target_onehot * torch.log(softmax_x)) / bs
+        return loss
+
+class SoftGradeSeesawLoss(nn.Module):
+    def __init__(self, num_classes, p=0.8, q=2):
+        super(SoftGradeSeesawLoss, self).__init__()
+        self.num_classes = num_classes
+        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        # cls_num_list = torch.zeros(size=(num_classes,1))
+        self.register_buffer('cls_num_list', cls_num_list)
+        self.p = p
+        self.q = q
+    
+    @torch.no_grad()
+    def get_weight(self, pred, target):
+        M_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        M_matrix[M_matrix>1] = 1  
+        M_matrix = torch.pow(M_matrix, self.p)
+        M_matrix = torch.mm(target, M_matrix)
+        
+        pred_correct = torch.sum(pred*target, dim=1, keepdim=True)
+        C_matrix = pred / pred_correct
+        C_matrix[C_matrix>1] = 1
+        C_matrix = torch.pow(C_matrix, self.q)
+        return M_matrix * C_matrix
+
+    def forward(self, x, target):
+        bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        pred = F.softmax(x, 1).detach()
+        g = torch.abs(pred - target_onehot)
+        # num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
+        # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
+        self.cls_num_list += num_classes_batch
+        weight = self.get_weight(pred, target_onehot)
+        # weighted_x = x + torch.log(weight)
+        # softmax_x = F.softmax(weighted_x, 1)
+        # loss = -torch.sum(target_onehot * torch.log(softmax_x)) / bs
+        loss = weighted_softmax(x, target_onehot, weight)
+        if torch.isinf(loss):
+            loss = weighted_softmax(x, target_onehot, weight)
+            sys.exit(0)
+        # print('x is nan:{}\nweight is nan:{}'.format(torch.isnan(x).any(), torch.isnan(weight).any()))
+        if (torch.isnan(x).any() or torch.isnan(weight).any()):
+            sys.exit(0)
         return loss

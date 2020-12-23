@@ -270,7 +270,7 @@ class GroupGHMcLoss(nn.Module):
         return 0
 
 class SeesawLoss_prior(nn.Module):
-    def __init__(self, cls_num_list, p=0.8):
+    def __init__(self, cls_num_list, p=0.8, num_classes=100):
         super(SeesawLoss_prior, self).__init__()
         self.num_classes = len(cls_num_list)
         cls_num_list = np.array(cls_num_list).reshape(self.num_classes, 1)
@@ -283,6 +283,13 @@ class SeesawLoss_prior(nn.Module):
         self.register_buffer('weight_matrix', weight_matrix)
 
 
+        self.num_classes = num_classes
+        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        self.register_buffer('neg_grad', neg_grad)
+        self.register_buffer('pos_grad', pos_grad)
+        self.ratio = torch.zeros(size=(1, num_classes))
+
     def forward(self, x, target):
         '''
         x: b * C
@@ -292,6 +299,13 @@ class SeesawLoss_prior(nn.Module):
         weight = torch.mm(target_onehot, self.weight_matrix)
         weighted_x = x + torch.log(weight)
         softmax_x = F.softmax(weighted_x, 1)
+
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        grad = torch.abs(softmax_x.clone().detach() - target_onehot.clone().detach())
+        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        self.pos_grad += (grad * target_onehot).sum(0)
+        self.ratio = self.pos_grad / self.neg_grad
+        # print(ratio)
         
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
@@ -304,6 +318,13 @@ class SeesawLoss(nn.Module):
         self.register_buffer('cls_num_list', cls_num_list)
         # self.cls_num_list.cuda()
         self.p = p
+
+        self.num_classes = num_classes
+        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        self.register_buffer('neg_grad', neg_grad)
+        self.register_buffer('pos_grad', pos_grad)
+        self.ratio = torch.zeros(size=(1, num_classes))
 
         
     @torch.no_grad()
@@ -329,18 +350,32 @@ class SeesawLoss(nn.Module):
         weight = torch.mm(target_onehot, weight_matrix)
         weighted_x = x + torch.log(weight)
         softmax_x = F.softmax(weighted_x, 1)
+
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        grad = torch.abs(softmax_x.clone().detach() - target_onehot.clone().detach())
+        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        self.pos_grad += (grad * target_onehot).sum(0)
+        self.ratio = self.pos_grad / self.neg_grad
         
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
 
 class SoftSeesawLoss(nn.Module):
-    def __init__(self, num_classes, p=0.8):
+    def __init__(self, num_classes, p=0.8, beta=0.5):
         super(SoftSeesawLoss, self).__init__()
         self.num_classes = num_classes
         cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
         self.register_buffer('cls_num_list', cls_num_list)
         # self.cls_num_list.cuda()
         self.p = p
+        self.beta = beta
+
+        self.num_classes = num_classes
+        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        self.register_buffer('neg_grad', neg_grad)
+        self.register_buffer('pos_grad', pos_grad)
+        self.ratio = torch.zeros(size=(1, num_classes))
 
         
     @torch.no_grad()
@@ -359,7 +394,7 @@ class SoftSeesawLoss(nn.Module):
         bs = x.shape[0]
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
         g = torch.abs(x.sigmoid().detach() - target_onehot)
-        num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot*(1-g + self.beta), 0, keepdim=True).detach().permute(1,0)
         # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)
         self.cls_num_list += num_classes_batch
         weight_matrix = self.get_weight_matrix()
@@ -367,6 +402,12 @@ class SoftSeesawLoss(nn.Module):
         weighted_x = x + torch.log(weight)
         softmax_x = F.softmax(weighted_x, 1)
         
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        grad = torch.abs(softmax_x.clone().detach() - target_onehot.clone().detach())
+        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        self.pos_grad += (grad * target_onehot).sum(0)
+        self.ratio = self.pos_grad / self.neg_grad
+
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
 
@@ -528,8 +569,8 @@ class SoftGradeSeesawLoss(nn.Module):
     def __init__(self, num_classes, p=0.8, q=2):
         super(SoftGradeSeesawLoss, self).__init__()
         self.num_classes = num_classes
-        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
-        # cls_num_list = torch.zeros(size=(num_classes,1))
+        # cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        cls_num_list = torch.zeros(size=(num_classes,1)) + 1e-6
         self.register_buffer('cls_num_list', cls_num_list)
         self.p = p
         self.q = q
@@ -552,9 +593,9 @@ class SoftGradeSeesawLoss(nn.Module):
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
         pred = F.softmax(x, 1).detach()
         g = torch.abs(pred - target_onehot)
-        # num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
         # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)
-        num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
+        # num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
         self.cls_num_list += num_classes_batch
         weight = self.get_weight(pred, target_onehot)
         # weighted_x = x + torch.log(weight)
@@ -568,3 +609,68 @@ class SoftGradeSeesawLoss(nn.Module):
         if (torch.isnan(x).any() or torch.isnan(weight).any()):
             sys.exit(0)
         return loss
+
+class EQLv2(nn.Module):
+    def __init__(self, num_classes, gamma=12, alpha=4, mu=0.8):
+        super(EQLv2, self).__init__()
+        self.num_classes = num_classes
+        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        self.register_buffer('neg_grad', neg_grad)
+        self.register_buffer('pos_grad', pos_grad)
+        self.gamma = gamma
+        self.alpha = alpha
+        self.mu = mu
+
+    @torch.no_grad()
+    def get_weight(self, target):
+        ratio_g = self.pos_grad / self.neg_grad
+        r = 1 / (1 + torch.exp(-self.gamma*(ratio_g - self.mu)))
+        q = 1 + self.alpha * (1 - r)
+        return q*target + r*(1-target)
+
+    def forward(self, x, target):
+        bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        pred = x.sigmoid()
+
+        weight = self.get_weight(target_onehot)
+
+        grad = weight * torch.abs(F.softmax(x, 1).detach() - target_onehot)
+        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        self.pos_grad += (grad * target_onehot).sum(0)
+
+        # log_pred = torch.log(torch.abs())
+        loss = F.binary_cross_entropy(pred, target_onehot, weight=weight, reduction='sum')
+        return loss/bs
+        # loss = -torch.log(grad*weight).()
+        # loss = torch.FloatTensor([0])
+        # log_pred = torch.log(1-grad)*target_onehot
+        # return -log_pred
+        # loss = (-weight*log_pred).sum()/bs
+        # loss = 
+        # return (weight*grad).mean()
+
+class CEloss(nn.Module):
+    def __init__(self, weight=None, num_classes=100):
+        super(CEloss, self).__init__()
+        self.weight=weight
+
+        self.num_classes = num_classes
+        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        self.register_buffer('neg_grad', neg_grad)
+        self.register_buffer('pos_grad', pos_grad)
+        self.ratio = torch.zeros(size=(1, num_classes))
+        self.mm = 0.9
+
+    def forward(self, x, target):
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        grad = torch.abs(F.softmax(x, 1).detach() - target_onehot)
+        # self.neg_grad = self.neg_grad*self.mm + (1-self.mm) * (grad * (1 - target_onehot)).sum(0)
+        # self.pos_grad = self.pos_grad*self.mm + (1-self.mm) * (grad * target_onehot).sum(0)
+        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        self.pos_grad += (grad * target_onehot).sum(0)
+        self.ratio = self.pos_grad / self.neg_grad
+        # print(ratio)
+        return F.cross_entropy(x, target, self.weight)

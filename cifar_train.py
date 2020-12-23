@@ -21,7 +21,7 @@ from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss
 
 import matplotlib.pyplot as plt
 
@@ -36,7 +36,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="SoftGradeSeesawLoss", type=str, help='loss type')
+parser.add_argument('--loss_type', default="CE", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -73,6 +73,7 @@ parser.add_argument('--gpu', default=0, type=int,
 parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
+parser.add_argument('--beta', dest='beta', default=0, type=float)
 best_acc1 = 0
 
 
@@ -81,7 +82,7 @@ def main():
     args.pretrained=True
     args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
     curr_time = datetime.datetime.now()
-    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed)])
+    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)
@@ -220,7 +221,8 @@ def main_worker(gpu, ngpus_per_node, args):
     
     # TAG Init loss
     if args.loss_type == 'CE':
-        criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
+        # criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
+        criterion = CEloss(weight=per_cls_weights).cuda(args.gpu)
     elif args.loss_type == 'LDAM':
         criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
     elif args.loss_type == 'Focal':
@@ -230,7 +232,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'GradSeesawLoss':
         criterion = GradSeesawLoss(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'SoftSeesaw':
-        criterion = SoftSeesawLoss(num_classes=num_classes).cuda(args.gpu)
+        criterion = SoftSeesawLoss(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
     elif args.loss_type == 'SoftGradeSeesawLoss':
         criterion = SoftGradeSeesawLoss(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'Seesaw_prior':
@@ -247,6 +249,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = SoftmaxGHMcV3(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SeesawGHMc':
         criterion = SeesawGHMc(bins=30, momentum=0.75).cuda(args.gpu)
+    elif args.loss_type == 'EQLv2':
+        criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -340,7 +344,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
     # tf_writer.add_histogram('linear.weight', model.linear.weight, epoch)
     # tf_writer.add_histogram('linear.bias', model.linear.bias, epoch)
-
+    fig = plt.figure()
+    plt.plot(criterion.ratio.cpu().numpy().transpose(1,0))
+    plt.ylim(0, 1.5)
+    plt.show()
+    tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
     if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
         # bins = len(criterion.acc_sum.tolist())
@@ -497,7 +505,8 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         )
         fig = plt.figure()
         plt.plot(cls_acc)
-        tf_writer.add_figure('total_acc'.format(epoch), fig, epoch)
+        plt.ylim(0,1)
+        tf_writer.add_figure('total_acc{}'.format(epoch), fig, epoch)
 
     return top1.avg
 

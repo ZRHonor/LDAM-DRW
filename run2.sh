@@ -1,14 +1,19 @@
 #!/bin/bash
 
 train_rule=None
-dataset=cifar10
+dataset=cifar100
 loss_type=SoftSeesaw
+beta=0.5
+# seed=
 
-for imb_factor in 1000
+for imb_factor in 500 200 100 50 10 1
 do
-    for beta in 0.5
+    for loss_type in SoftSeesaw Seesaw Seesaw_prior
     do
-        python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule --beta $beta
+        for seed in 234 345 456
+        do
+            python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule --beta $beta --seed $seed
+        done
     done
 done
 

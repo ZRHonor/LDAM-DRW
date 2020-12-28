@@ -22,6 +22,7 @@ from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
 from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss
+from torchvision.datasets import ImageFolder
 
 import matplotlib.pyplot as plt
 
@@ -30,7 +31,7 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
-parser.add_argument('--dataset', default='cifar100', help='dataset setting')
+parser.add_argument('--dataset', default='New101', help='dataset setting')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     choices=model_names,
                     help='model architecture: ' +
@@ -80,7 +81,8 @@ best_acc1 = 0
 def main():
     args = parser.parse_args()
     args.pretrained=True
-    args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
+    # args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
+    args.num_classes=102
     curr_time = datetime.datetime.now()
     args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
     args.imb_factor = 1.0 / args.imb_factor
@@ -116,8 +118,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model '{}'".format(args.arch))
-    num_classes = 100 if args.dataset == 'cifar100' else 10
-    use_norm = True if args.loss_type in ['LDAM'] else False
+    # num_classes = 100 if args.dataset == 'cifar100' else 10
+    num_classes=102
+    use_norm = True if args.loss_type in ['LDAM', 'Seesaw', 'SoftSeesaw'] else False
     model = models.__dict__[args.arch](num_classes=num_classes, use_norm=use_norm)
 
     if args.gpu is not None:
@@ -153,27 +156,36 @@ def main_worker(gpu, ngpus_per_node, args):
     # Data loading code
 
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.RandomCrop(size=198, pad_if_needed=True),
+        transforms.Resize(64),
+        transforms.RandomHorizontalFlip(0.5),
+        transforms.RandomVerticalFlip(0.5),
+        transforms.RandomRotation(90),
+        transforms.ToTensor()
     ])
 
     transform_val = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Resize(size=(64,64)),
+        transforms.ToTensor()
     ])
 
-    if args.dataset == 'cifar10':
-        train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=False, download=True, transform=transform_val)
-    elif args.dataset == 'cifar100':
-        train_dataset = IMBALANCECIFAR100(root='./data/CIFAR100', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR100(root='./data/CIFAR100', train=False, download=True, transform=transform_val)
-    else:
-        warnings.warn('Dataset is not listed')
-        return
-    cls_num_list = train_dataset.get_cls_num_list()
+    # if args.dataset == 'cifar10':
+    train_dataset = ImageFolder('data/New101/train', transform=transform_train)
+    bg_sample = train_dataset.samples[-2012:]
+    bg_target = train_dataset.targets[-2012:]
+    train_dataset.samples += 10*bg_sample
+    train_dataset.targets += 10*bg_target
+        # train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+    val_dataset = ImageFolder('data/New101/val', transform=transform_val)
+
+    # elif args.dataset == 'cifar100':
+    #     train_dataset = IMBALANCECIFAR100(root='./data/CIFAR100', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+    #     val_dataset = datasets.CIFAR100(root='./data/CIFAR100', train=False, download=True, transform=transform_val)
+    # else:
+    #     warnings.warn('Dataset is not listed')
+    #     return
+    # cls_num_list = train_dataset.get_cls_num_list()
+    cls_num_list = []
     print('cls num list:')
     print(cls_num_list)
     args.cls_num_list = cls_num_list
@@ -222,7 +234,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # TAG Init loss
     if args.loss_type == 'CE':
         # criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
-        criterion = CEloss(weight=per_cls_weights).cuda(args.gpu)
+        criterion = CEloss(weight=per_cls_weights, num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'LDAM':
         criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
     elif args.loss_type == 'Focal':

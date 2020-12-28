@@ -360,6 +360,40 @@ class SeesawLoss(nn.Module):
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
 
+class SeesawLossv2(nn.Module):
+    def __init__(self, num_classes, p=0.8):
+        super(SeesawLossv2, self).__init__()
+        self.num_classes = num_classes
+        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        self.register_buffer('cls_num_list', cls_num_list)
+        # self.cls_num_list.cuda()
+        self.p = p
+
+    @torch.no_grad()
+    def get_weight(self, pred, target):
+        M_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        M_matrix[M_matrix>1] = 1  
+        M_matrix = torch.pow(M_matrix, self.p)
+        M_matrix = torch.mm(target, M_matrix)
+        
+        pred_correct = torch.sum(pred*target, dim=1, keepdim=True)
+        C_matrix = pred / pred_correct
+        C_matrix[C_matrix>1] = 1
+        C_matrix = torch.pow(C_matrix, self.q)
+        return M_matrix * C_matrix
+    
+    def forward(self, x, target):
+        # bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        pred = F.softmax(x, 1).detach()
+        num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
+        self.cls_num_list += num_classes_batch
+        weight = self.get_weight(pred, target_onehot)
+        loss = weighted_softmax(x, target_onehot, weight)
+        return loss
+
+    
+
 class SoftSeesawLoss(nn.Module):
     def __init__(self, num_classes, p=0.8, beta=0.5):
         super(SoftSeesawLoss, self).__init__()
@@ -593,9 +627,9 @@ class SoftGradeSeesawLoss(nn.Module):
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
         pred = F.softmax(x, 1).detach()
         g = torch.abs(pred - target_onehot)
-        num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
+        # num_classes_batch = torch.sum(target_onehot*(1-g), 0, keepdim=True).detach().permute(1,0)
         # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)
-        # num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot, 0, keepdim=True).detach().permute(1,0)
         self.cls_num_list += num_classes_batch
         weight = self.get_weight(pred, target_onehot)
         # weighted_x = x + torch.log(weight)

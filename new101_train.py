@@ -37,7 +37,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default="CE", type=str, help='loss type')
+parser.add_argument('--loss_type', default="Seesaw", type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -171,10 +171,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # if args.dataset == 'cifar10':
     train_dataset = ImageFolder('data/New101/train', transform=transform_train)
-    bg_sample = train_dataset.samples[-2012:]
-    bg_target = train_dataset.targets[-2012:]
-    train_dataset.samples += 10*bg_sample
-    train_dataset.targets += 10*bg_target
+    # bg_sample = train_dataset.samples[-2012:]
+    # bg_target = train_dataset.targets[-2012:]
+    # # train_dataset.samples += 10*bg_sample
+    # # train_dataset.targets += 10*bg_target
         # train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
     val_dataset = ImageFolder('data/New101/val', transform=transform_val)
 

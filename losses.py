@@ -280,6 +280,7 @@ class SeesawLoss_prior(nn.Module):
         weight_matrix = np.power(weight_matrix, p)
 
         weight_matrix = torch.FloatTensor(weight_matrix)
+        
         self.register_buffer('weight_matrix', weight_matrix)
 
 
@@ -332,8 +333,11 @@ class SeesawLoss(nn.Module):
         weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
         weight_matrix[weight_matrix>1] = 1  
         weight_matrix = torch.pow(weight_matrix, self.p)
-
-        # weight_matrix = weight_matrix.cuda()
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:,-1], dim=0)
+        # weight_matrix[-1,:] = 1
+        # weight_matrix[:,-1] = 1
+        # weight_matrix[1,:] = torch.mean(weight_matrix[1:,:])
+        weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
         return weight_matrix
 
     def forward(self, x, target):
@@ -417,8 +421,11 @@ class SoftSeesawLoss(nn.Module):
         weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
         weight_matrix[weight_matrix>1] = 1  
         weight_matrix = torch.pow(weight_matrix, self.p)
-
-        # weight_matrix = weight_matrix.cuda()
+        weight_matrix[-1,:] = torch.mean(weight_matrix[:,-1], dim=0)
+        # weight_matrix[-1,:] = weight_matrix.mean(dim=1)
+        # weight_matrix[:,-1] = 1
+        weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
+        # weight_matrix[1,:] = torch.mean(weight_matrix[1:,:])
         return weight_matrix
 
     def forward(self, x, target):

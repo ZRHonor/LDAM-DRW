@@ -337,7 +337,7 @@ class SeesawLoss(nn.Module):
         # weight_matrix[-1,:] = 1
         # weight_matrix[:,-1] = 1
         # weight_matrix[1,:] = torch.mean(weight_matrix[1:,:])
-        weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
         return weight_matrix
 
     def forward(self, x, target):
@@ -421,11 +421,13 @@ class SoftSeesawLoss(nn.Module):
         weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
         weight_matrix[weight_matrix>1] = 1  
         weight_matrix = torch.pow(weight_matrix, self.p)
-        weight_matrix[-1,:] = torch.mean(weight_matrix[:,-1], dim=0)
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:,-1], dim=0)
         # weight_matrix[-1,:] = weight_matrix.mean(dim=1)
         # weight_matrix[:,-1] = 1
-        weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
         # weight_matrix[1,:] = torch.mean(weight_matrix[1:,:])
+        # weight_matrix[weight_matrix<1e-6] = 1e-6
+        # weight_matrix = torch.clip(weight_matrix, 1e-6, 1)
         return weight_matrix
 
     def forward(self, x, target):
@@ -440,7 +442,8 @@ class SoftSeesawLoss(nn.Module):
         self.cls_num_list += num_classes_batch
         weight_matrix = self.get_weight_matrix()
         weight = torch.mm(target_onehot, weight_matrix)
-        weighted_x = x + torch.log(weight)
+        weighted_x = x + torch.log(weight).clip(-7, 7)
+        # weighted_x = x + torch.log(weight)
         softmax_x = F.softmax(weighted_x, 1)
         
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()

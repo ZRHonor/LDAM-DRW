@@ -341,6 +341,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
                 epoch, args.epochs, i, len(train_loader), batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr']))
             print(output)
+            # print('avg_g:{}'.format(criterion.))
             log.write(output + '\n')
             log.flush()
 

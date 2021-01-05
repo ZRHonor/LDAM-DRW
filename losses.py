@@ -441,7 +441,7 @@ class SoftSeesawLoss(nn.Module):
         g = torch.abs(x.sigmoid().detach() - target_onehot)
         g_of_samples = torch.sum(target_onehot*(1-g), 1)
         self.avg_g = self.alpha*self.avg_g + (1-self.alpha)*g_of_samples.mean()
-        num_classes_batch = torch.sum(target_onehot*(1-g + self.avg_g), 0, keepdim=True).detach().permute(1,0)
+        num_classes_batch = torch.sum(target_onehot*(1+(self.avg_g - g)), 0, keepdim=True).detach().permute(1,0)
         # self.avg_g = self.alpha*self.avg_g + (1-self.alpha)*num_classes_batch.mean()
         # num_classes_batch += self.avg_g
         # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)

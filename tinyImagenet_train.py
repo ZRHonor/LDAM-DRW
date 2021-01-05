@@ -84,7 +84,7 @@ def main():
     args.pretrained=True
     args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
     curr_time = datetime.datetime.now()
-    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
+    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)

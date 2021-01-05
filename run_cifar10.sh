@@ -1,13 +1,13 @@
 #!/bin/bash
 
 train_rule=None
-dataset=cifar10
+dataset=cifar100
 
 for imb_factor in 1 10 100
 do
-    for loss_type in CE Seesaw_prior Seesaw SoftSeesaw GradSeesawLoss SoftGradeSeesawLoss GradSeesawLoss_prior
+    for loss_type in SoftSeesaw
     do
-        python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule --seed 1
+        python cifar_train.py --dataset $dataset --imb_factor $imb_factor --loss_type $loss_type --train_rule $train_rule --seed 123
     done
 done
 

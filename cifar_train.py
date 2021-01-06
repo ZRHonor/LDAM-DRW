@@ -21,7 +21,7 @@ from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss
 
 import matplotlib.pyplot as plt
 
@@ -36,7 +36,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='SoftSeesaw', type=str, help='loss type')
+parser.add_argument('--loss_type', default='EQL', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -251,6 +251,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = SeesawGHMc(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'EQLv2':
         criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
+    elif args.loss_type == 'EQL':
+        criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -344,11 +346,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     tf_writer.add_scalar('lr', optimizer.param_groups[-1]['lr'], epoch)
     # tf_writer.add_histogram('linear.weight', model.linear.weight, epoch)
     # tf_writer.add_histogram('linear.bias', model.linear.bias, epoch)
-    fig = plt.figure()
-    plt.plot(criterion.ratio.cpu().numpy().transpose(1,0))
-    plt.ylim(0.8, 1.2)
-    plt.show()
-    tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
+    # fig = plt.figure()
+    # plt.plot(criterion.ratio.cpu().numpy().transpose(1,0))
+    # plt.ylim(0.8, 1.2)
+    # plt.show()
+    # tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
     if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
         # bins = len(criterion.acc_sum.tolist())

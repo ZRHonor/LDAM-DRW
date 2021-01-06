@@ -439,9 +439,10 @@ class SoftSeesawLoss(nn.Module):
         bs = x.shape[0]
         target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
         g = torch.abs(x.sigmoid().detach() - target_onehot)
-        g_of_samples = torch.sum(target_onehot*(1-g), 1)
+        g_of_samples = torch.sum(target_onehot*g, 1)
         self.avg_g = self.alpha*self.avg_g + (1-self.alpha)*g_of_samples.mean()
         num_classes_batch = torch.sum(target_onehot*(1+(self.avg_g - g)), 0, keepdim=True).detach().permute(1,0)
+        # num_classes_batch = torch.sum(target_onehot*(1+(0.5 - g)), 0, keepdim=True).detach().permute(1,0)
         # self.avg_g = self.alpha*self.avg_g + (1-self.alpha)*num_classes_batch.mean()
         # num_classes_batch += self.avg_g
         # num_classes_batch = torch.sum(target_onehot*g, 0, keepdim=True).detach().permute(1,0)
@@ -724,3 +725,33 @@ class CEloss(nn.Module):
         self.ratio = self.pos_grad / self.neg_grad
         # print(ratio)
         return F.cross_entropy(x, target, self.weight)
+
+
+class EQLloss(nn.Module):
+    def __init__(self, cls_num_list, r=3e-3):
+        super(EQLloss, self).__init__()
+        self.cls_num_list = cls_num_list
+        self.r = r
+        self.num_classes = len(cls_num_list)
+
+        total = np.asarray(cls_num_list).sum()
+        weight_matrix = torch.ones(size=(self.num_classes, self.num_classes))
+        sum=0
+        div = self.num_classes-1
+        for i in range(self.num_classes):
+            sum+=cls_num_list[div]
+            if sum >= (total*self.r):
+                break
+            div-=1
+        
+        weight_matrix[div:,div:] = torch.eye(self.num_classes-div)
+        self.register_buffer('weight_matrix', weight_matrix)
+
+    def forward(self, x, target):
+        bs = x.shape[0]
+        x = x.sigmoid()
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+        weight = torch.mm(target_onehot, self.weight_matrix)
+        # cls_loss =  F.binary_cross_entropy(x.view(-1), target_onehot.view(-1), weight=weight.view(-1), reduction='none')
+        cls_loss = F.binary_cross_entropy(x.view(-1), target_onehot.view(-1), reduction='none')
+        return torch.sum(cls_loss) / bs

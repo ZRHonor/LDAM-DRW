@@ -5,6 +5,7 @@ import time
 import warnings
 import sys
 import numpy as np
+# from numpy.core.function_base import linspace
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -21,7 +22,7 @@ from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesaw
 
 import matplotlib.pyplot as plt
 
@@ -36,7 +37,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='EQL', type=str, help='loss type')
+parser.add_argument('--loss_type', default='GHMSeesaw', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -253,6 +254,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'EQL':
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
+    elif args.loss_type == 'GHMSeesaw':
+        criterion = GHMSeesaw(num_classes=num_classes).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -352,9 +355,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     # plt.show()
     # tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
-    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
+    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc','GHMSeesaw']:
         # bins = len(criterion.acc_sum.tolist())
-        limits = np.arange(0,30,1)/30
+        limits = np.arange(0,10,1)/10
         accsum = criterion.acc_sum.cpu().numpy()
         accsum = accsum/np.sum(accsum)
         tf_writer.add_histogram_raw(
@@ -382,7 +385,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
             bucket_counts=accsum.tolist(),
             global_step=epoch
         )
-    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
+    if args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss','GHMSeesaw']:
         limits = np.arange(0,args.num_classes,1)
         accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
         accsum = accsum/np.sum(accsum)
@@ -400,6 +403,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         accsum = np.log(accsum+1e-8)
         accsum = accsum-np.min(accsum)
         accsum = accsum/np.sum(accsum)
+        temp = np.linspace(1, 0, accsum.shape[0])
+        accsum = accsum-temp
+        accsum = accsum-np.min(accsum)
         tf_writer.add_histogram_raw(
             'LOGcls_num_list',
             min=0,

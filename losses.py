@@ -755,3 +755,67 @@ class EQLloss(nn.Module):
         # cls_loss =  F.binary_cross_entropy(x.view(-1), target_onehot.view(-1), weight=weight.view(-1), reduction='none')
         cls_loss = F.binary_cross_entropy(x.view(-1), target_onehot.view(-1), reduction='none')
         return torch.sum(cls_loss) / bs
+
+class GHMSeesaw(nn.Module):
+    def __init__(self, bins=10, momentum=0.7, loss_weight=1.0, num_classes=100,p=0.8):
+        super(GHMSeesaw, self).__init__()
+        self.num_classes = num_classes
+        self.bins = bins
+        self.momentum = momentum
+        edges = torch.arange(bins + 1).float() / bins
+        edges = torch.pow(edges, 2)
+        self.register_buffer('edges', edges)
+        self.edges[-1] += 1e-6
+        if momentum > 0:
+            acc_sum = torch.zeros(bins)
+            self.register_buffer('acc_sum', acc_sum)
+        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        self.register_buffer('cls_num_list', cls_num_list)
+        self.p = p
+
+    @torch.no_grad()
+    def get_weight_matrix(self):
+        weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        weight_matrix[weight_matrix>1] = 1  
+        weight_matrix = torch.pow(weight_matrix, self.p)
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:,-1], dim=0)
+        # weight_matrix[-1,:] = weight_matrix.mean(dim=1)
+        # weight_matrix[:,-1] = 1
+        # weight_matrix[-1,:] = torch.mean(weight_matrix[:-1,:])
+        # weight_matrix[1,:] = torch.mean(weight_matrix[1:,:])
+        # weight_matrix[weight_matrix<1e-6] = 1e-6
+        # weight_matrix = torch.clip(weight_matrix, 1e-6, 1)
+        return weight_matrix
+
+    @torch.no_grad()
+    def update(self, g_of_samples, target_onehot):
+        edges = self.edges
+        mmt=self.momentum
+        effective_number = torch.zeros_like(g_of_samples)
+        self.acc_sum*=mmt
+        n=0
+        for i in range(self.bins):
+            inds = (g_of_samples >= edges[i]) & (g_of_samples < edges[i + 1])
+            num_in_bin = inds.sum().item()
+            if num_in_bin > 0:
+                n+=1
+                self.acc_sum[i] = self.acc_sum[i] + (1 - mmt) * num_in_bin
+                effective_number[inds] = 1 / self.acc_sum[i]
+        effective_number = torch.pow(effective_number, 0.1)
+        effective_number /= effective_number.mean()
+        self.cls_num_list += torch.sum(effective_number.reshape(-1,1)*target_onehot, 0, keepdim=True).transpose(1,0)
+        weight_matrix = self.get_weight_matrix()
+        return effective_number, weight_matrix
+
+    def forward(self, x, target):
+        bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
+        g = torch.abs(x.sigmoid().detach() - target_onehot)
+        g_of_samples = torch.sum(target_onehot*g, 1)
+        effective_number, weight_matrix = self.update(g_of_samples, target_onehot)
+        weight = torch.mm(target_onehot, weight_matrix)
+        weighted_x = x + torch.log(weight)
+        # weighted_x = x + torch.log(weight)
+        softmax_x = F.softmax(weighted_x, 1)
+        loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
+        return loss

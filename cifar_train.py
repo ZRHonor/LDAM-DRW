@@ -22,7 +22,7 @@ from utils import *
 from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesaw
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesaw, GHMSeesawV2
 
 import matplotlib.pyplot as plt
 
@@ -37,7 +37,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='GHMSeesaw', type=str, help='loss type')
+parser.add_argument('--loss_type', default='GHMSeesawV2', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -256,6 +256,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GHMSeesaw':
         criterion = GHMSeesaw(num_classes=num_classes).cuda(args.gpu)
+    elif args.loss_type == 'GHMSeesawV2':
+        criterion = GHMSeesawV2(num_classes=num_classes).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -385,7 +387,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
             bucket_counts=accsum.tolist(),
             global_step=epoch
         )
-    if args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss','GHMSeesaw']:
+    if args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss','GHMSeesaw', 'GHMSeesawV2']:
         limits = np.arange(0,args.num_classes,1)
         accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
         accsum = accsum/np.sum(accsum)
@@ -403,9 +405,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         accsum = np.log(accsum+1e-8)
         accsum = accsum-np.min(accsum)
         accsum = accsum/np.sum(accsum)
-        temp = np.linspace(1, 0, accsum.shape[0])
-        accsum = accsum-temp
-        accsum = accsum-np.min(accsum)
+        # temp = np.linspace(1, 0, accsum.shape[0])
+        # accsum = accsum-temp
+        # accsum = accsum-np.min(accsum)
         tf_writer.add_histogram_raw(
             'LOGcls_num_list',
             min=0,

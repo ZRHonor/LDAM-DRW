@@ -23,7 +23,7 @@ from utils import *
 from ImTinyImagenet import ImTinyImagenet_bg
 import datetime
 from losses import GHMSeesawV2, LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawV2
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawBG
 
 import matplotlib.pyplot as plt
 
@@ -38,7 +38,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='CE', type=str, help='loss type')
+parser.add_argument('--loss_type', default='GHMSeesawBG', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=200, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -259,8 +259,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'EQL':
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
-    elif args.loss_type == 'GHMSeesawV2':
-        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
+    elif args.loss_type == 'GHMSeesawBG':
+        criterion = GHMSeesawBG(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -328,7 +328,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 2, 2)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1, 2)
         optimizer.step()
 
         # measure elapsed time

@@ -892,3 +892,91 @@ class GHMSeesawV2(nn.Module):
         softmax_x = F.softmax(weighted_x, 1)
         loss = -torch.sum(target_onehot * torch.log(softmax_x))/bs
         return loss
+
+class GHMSeesawBG(nn.Module):
+    def __init__(self, bins=10, momentum=0.7, loss_weight=1.0, num_classes=100,p=0.8, beta=1):
+        super(GHMSeesawBG, self).__init__()
+        self.num_classes = num_classes
+        
+        self.bins = bins
+        edges = torch.arange(bins + 1).float() / bins
+        edges = torch.pow(edges, 2)
+        self.register_buffer('edges', edges)
+
+        acc_sum = torch.zeros(bins, num_classes)
+        self.register_buffer('acc_sum', acc_sum)
+
+        cls_num_list = torch.ones(size=(num_classes,1)) * 1e-6
+        self.register_buffer('cls_num_list', cls_num_list)
+        self.p = p
+        self.momentum = momentum
+        centers = torch.linspace(0.5/self.bins, 1-0.5/self.bins, steps=self.bins).reshape(1,-1)
+        self.register_buffer('centers', centers)
+        self.beta = beta
+    
+    @torch.no_grad()
+    def get_weight_matrix(self, target_onehot):
+        self.cls_num_list[self.cls_num_list==0] = 1e-6
+        weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        weight_matrix[weight_matrix>1] = 1
+        # weight_matrix[weight_matrix==0] = 1e-6
+        weight_matrix = torch.pow(weight_matrix, self.p)
+        weight_matrix[-1,:]=1
+        weight = torch.mm(target_onehot, weight_matrix)
+        return weight
+
+    @torch.no_grad()
+    def get_weight_matrixV2(self, cls_num_matrix, target_onehot):
+        cls_num_matrix[cls_num_matrix==0] = 1e-6
+        num_for_samples = (cls_num_matrix*target_onehot).sum(1, keepdim=True)
+        weight = cls_num_matrix / num_for_samples
+        # weight_matrix = (1.0 / self.cls_num_list) * self.cls_num_list.transpose(1,0)
+        weight[weight>1] = 1
+        # weight_matrix[weight_matrix==0] = 1e-6
+        weight = torch.pow(weight, self.p)
+        return weight
+
+    @torch.no_grad()
+    def update(self, g, target_onehot):
+        edges = self.edges
+        g_of_samples = g * target_onehot
+        cls_num_matrix = torch.zeros_like(g)
+        self.acc_sum = self.momentum * self.acc_sum
+        for i in range(self.bins):
+            inds = (g_of_samples > edges[i]) & (g_of_samples <= edges[i + 1])
+            num_in_bin = inds.sum(0, keepdim=True)
+            self.acc_sum[i] = self.acc_sum[i] + (1 - self.momentum) * num_in_bin
+            cls_num_matrix[inds.sum(1, keepdim=True).repeat(1, self.num_classes)] = self.acc_sum[i,:]
+        # self.cls_num_list = self.acc_sum.sum(0, keepdim=True).transpose(1,0)
+        # self.cls_num_list = torch.mm(torch.pow(self.centers, 0.5), self.acc_sum).transpose(1,0)
+        self.cls_num_list = torch.pow(self.acc_sum, self.beta).sum(0, keepdim=True).transpose(1,0)
+        # weight = self.get_weight_matrixV2(cls_num_matrix, target_onehot)
+        # return weight
+
+    def loss_foreground(self, x, target):
+        bs = x.shape[0]
+        target_onehot = F.one_hot(target, num_classes=self.num_classes).float()
+        target_onehot = target_onehot
+        g = torch.abs(x.sigmoid().detach() - target_onehot)
+        self.update(g, target_onehot)
+        weight = self.get_weight_matrix(target_onehot)
+        weighted_x = x + torch.log(weight)
+        softmax_x = F.softmax(weighted_x, 1)
+        # target_onehot[:,-1] = target_onehot[:,-1]*0.3
+        loss = -torch.sum(target_onehot[:,:-1] * torch.log(softmax_x[:,:-1]))/bs
+        return loss
+
+    def loss_background(self, x, target):
+        bs = x.shape[0]
+        target_onehot = (target==(self.num_classes-1)).float()
+        softmax_x = F.softmax(x, 1)[:,-1]
+        loss = -torch.sum(0.3*target_onehot * torch.log(softmax_x) + (1-target_onehot)*torch.log(1-softmax_x))/bs
+        return loss
+
+    def forward(self, x, target):
+        loss_1 = self.loss_background(torch.cat([torch.max(x[:,:-1], dim=1, keepdim=True)[0], x[:,-1:]], 1), target)
+        loss_2 = self.loss_foreground(x, target) 
+        return loss_1 + loss_2
+        # weight = self.update(g, target_onehot)
+        # weight = self.get_weight_matrixV2()
+        

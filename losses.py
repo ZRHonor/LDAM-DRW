@@ -822,7 +822,7 @@ class GHMSeesaw(nn.Module):
 
 
 class GHMSeesawV2(nn.Module):
-    def __init__(self, bins=10, momentum=0.7, loss_weight=1.0, num_classes=100,p=0.8):
+    def __init__(self, bins=10, momentum=0.7, loss_weight=1.0, num_classes=100,p=0.8, beta=1):
         super(GHMSeesawV2, self).__init__()
         self.num_classes = num_classes
         
@@ -840,6 +840,7 @@ class GHMSeesawV2(nn.Module):
         self.momentum = momentum
         centers = torch.linspace(0.5/self.bins, 1-0.5/self.bins, steps=self.bins).reshape(1,-1)
         self.register_buffer('centers', centers)
+        self.beta = beta
     
     @torch.no_grad()
     def get_weight_matrix(self, target_onehot):
@@ -875,7 +876,7 @@ class GHMSeesawV2(nn.Module):
             cls_num_matrix[inds.sum(1, keepdim=True).repeat(1, self.num_classes)] = self.acc_sum[i,:]
         # self.cls_num_list = self.acc_sum.sum(0, keepdim=True).transpose(1,0)
         # self.cls_num_list = torch.mm(torch.pow(self.centers, 0.5), self.acc_sum).transpose(1,0)
-        self.cls_num_list = torch.pow(self.acc_sum, 1.2).sum(0, keepdim=True).transpose(1,0)
+        self.cls_num_list = torch.pow(self.acc_sum, self.beta).sum(0, keepdim=True).transpose(1,0)
         # weight = self.get_weight_matrixV2(cls_num_matrix, target_onehot)
         # return weight
 

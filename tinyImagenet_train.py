@@ -22,8 +22,8 @@ from utils import *
 # from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
 from ImTinyImagenet import ImTinyImagenet
 import datetime
-from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss
+from losses import GHMSeesawV2, LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawV2
 
 import matplotlib.pyplot as plt
 
@@ -40,7 +40,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                         ' (default: resnet32)')
 parser.add_argument('--loss_type', default='EQL', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=500, type=int, help='imbalance factor')
+parser.add_argument('--imb_factor', default=200, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
@@ -259,6 +259,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'EQL':
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
+    elif args.loss_type == 'GHMSeesawV2':
+        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return

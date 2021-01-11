@@ -5,8 +5,6 @@ import time
 import warnings
 import sys
 import numpy as np
-import shutil
-# from numpy.core.function_base import linspace
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -14,16 +12,19 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.multiprocessing as mp
 import torch.utils.data
+import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
+from torchvision.transforms.transforms import RandomResizedCrop, RandomVerticalFlip, Resize
 import models
 from tensorboardX import SummaryWriter
 from sklearn.metrics import confusion_matrix
 from utils import *
-from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
+# from imbalance_cifar import IMBALANCECIFAR10, IMBALANCECIFAR100
+from ImTinyImagenet import ImTinyImagenet
 import datetime
 from losses import LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesaw, GHMSeesawV2
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawV2
 
 import matplotlib.pyplot as plt
 
@@ -32,21 +33,21 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
-parser.add_argument('--dataset', default='cifar10', help='dataset setting')
+parser.add_argument('--dataset', default='ImagenetLT', help='dataset setting')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
-                        ' (default: resnet32)')
-parser.add_argument('--loss_type', default='CE', type=str, help='loss type')
+                        ' (default: resnet50)')
+parser.add_argument('--loss_type', default='EQL', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
+parser.add_argument('--imb_factor', default=500, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=200, type=int, metavar='N',
+parser.add_argument('--epochs', default=100, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -57,7 +58,7 @@ parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--wd', '--weight-decay', default=2e-4, type=float,
+parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=50, type=int,
@@ -68,35 +69,29 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
-parser.add_argument('--seed', default=123, type=int,
+parser.add_argument('--seed', default=0, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=0, type=int,
                     help='GPU id to use.')
-parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
+parser.add_argument('--num_classes', dest='num_classes', default=1000, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
-parser.add_argument('--beta', dest='beta', default=0, type=float)
+parser.add_argument('--beta', dest='beta', default=0.5, type=float)
 best_acc1 = 0
 
 
 def main():
     args = parser.parse_args()
     args.pretrained=True
-    args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
+    args.num_classes = 1000
     curr_time = datetime.datetime.now()
-    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), args.dataset, args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
+    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)
     print('=====================================================================\n')
 
     prepare_folders(args)
-
-    all_files = os.listdir('./')
-    for f in all_files:
-        if f.endswith('py'):
-            shutil.copy(f, dst='log/{}/code/'.format(args.store_name))
-
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -123,10 +118,13 @@ def main_worker(gpu, ngpus_per_node, args):
         print("Use GPU: {} for training".format(args.gpu))
 
     # create model
-    print("=> creating model '{}'".format(args.arch))
-    num_classes = 100 if args.dataset == 'cifar100' else 10
-    use_norm = True if args.loss_type in ['LDAM'] else False
-    model = models.__dict__[args.arch](num_classes=num_classes, use_norm=use_norm)
+    # print("=> creating model '{}'".format(args.arch))
+    # num_classes = 100 if args.dataset == 'cifar100' else 10
+    # use_norm = True if args.loss_type in ['LDAM'] else False
+    # model = models.__dict__[args.arch](num_classes=num_classes, use_norm=use_norm)
+
+    # TODO creat model Resnet50
+    model = torchvision.models.resnet50(pretrained=False)
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
@@ -161,26 +159,32 @@ def main_worker(gpu, ngpus_per_node, args):
     # Data loading code
 
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        # transforms.RandomCrop(32, padding=4),
+        transforms.Resize(256),
+        transforms.RandomResizedCrop(224),
+        transforms.RandomRotation(90),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
     transform_val = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
-    if args.dataset == 'cifar10':
-        train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=False, download=True, transform=transform_val)
-    elif args.dataset == 'cifar100':
-        train_dataset = IMBALANCECIFAR100(root='./data/CIFAR100', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
-        val_dataset = datasets.CIFAR100(root='./data/CIFAR100', train=False, download=True, transform=transform_val)
-    else:
-        warnings.warn('Dataset is not listed')
-        return
+    train_dataset = ImTinyImagenet(root='data/TinyImageNet/train', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, transform=transform_train)
+    val_dataset = datasets.ImageFolder(root='data/TinyImageNet/val', transform=transform_val)
+    # if args.dataset == 'cifar10':
+    #     train_dataset = IMBALANCECIFAR10(root='./data/CIFAR10', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+    #     val_dataset = datasets.CIFAR10(root='./data/CIFAR10', train=False, download=True, transform=transform_val)
+    # elif args.dataset == 'cifar100':
+    #     train_dataset = IMBALANCECIFAR100(root='./data/CIFAR100', imb_type=args.imb_type, imb_factor=args.imb_factor, rand_number=args.rand_number, train=True, download=True, transform=transform_train)
+    #     val_dataset = datasets.CIFAR100(root='./data/CIFAR100', train=False, download=True, transform=transform_val)
+    # else:
+    #     warnings.warn('Dataset is not listed')
+    #     return
     cls_num_list = train_dataset.get_cls_num_list()
     print('cls num list:')
     print(cls_num_list)
@@ -230,7 +234,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # TAG Init loss
     if args.loss_type == 'CE':
         # criterion = nn.CrossEntropyLoss(weight=per_cls_weights).cuda(args.gpu)
-        criterion = CEloss(weight=per_cls_weights, num_classes=num_classes).cuda(args.gpu)
+        criterion = CEloss(weight=per_cls_weights).cuda(args.gpu)
     elif args.loss_type == 'LDAM':
         criterion = LDAMLoss(cls_num_list=cls_num_list, max_m=0.5, s=30, weight=per_cls_weights).cuda(args.gpu)
     elif args.loss_type == 'Focal':
@@ -261,8 +265,6 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLv2(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'EQL':
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
-    elif args.loss_type == 'GHMSeesaw':
-        criterion = GHMSeesaw(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'GHMSeesawV2':
         criterion = GHMSeesawV2(num_classes=num_classes).cuda(args.gpu)
     else:
@@ -349,6 +351,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
                 epoch, args.epochs, i, len(train_loader), batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=top1, top5=top5, lr=optimizer.param_groups[-1]['lr']))
             print(output)
+            # print('avg_g:{}'.format(criterion.))
             log.write(output + '\n')
             log.flush()
 
@@ -364,9 +367,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     # plt.show()
     # tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
-    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc','GHMSeesaw']:
+    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
         # bins = len(criterion.acc_sum.tolist())
-        limits = np.arange(0,10,1)/10
+        limits = np.arange(0,30,1)/30
         accsum = criterion.acc_sum.cpu().numpy()
         accsum = accsum/np.sum(accsum)
         tf_writer.add_histogram_raw(
@@ -383,6 +386,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         accsum = np.log(accsum+1e-8)
         accsum = accsum-np.min(accsum)
         accsum = accsum/np.sum(accsum)
+        temp = np.linspace(accsum.max(), accsum.min(), len(accsum))
+        accsum = accsum-temp
         tf_writer.add_histogram_raw(
             'LOGHist_in_GHM',
             min=0,
@@ -394,7 +399,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
             bucket_counts=accsum.tolist(),
             global_step=epoch
         )
-    if args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss','GHMSeesaw', 'GHMSeesawV2']:
+    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
         limits = np.arange(0,args.num_classes,1)
         accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
         accsum = accsum/np.sum(accsum)
@@ -412,9 +417,6 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         accsum = np.log(accsum+1e-8)
         accsum = accsum-np.min(accsum)
         accsum = accsum/np.sum(accsum)
-        # temp = np.linspace(1, 0, accsum.shape[0])
-        # accsum = accsum-temp
-        # accsum = accsum-np.min(accsum)
         tf_writer.add_histogram_raw(
             'LOGcls_num_list',
             min=0,
@@ -530,14 +532,7 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     epoch = epoch + 1
-    if epoch <= 5:
-        lr = args.lr * epoch / 5
-    elif epoch > 180:
-        lr = args.lr * 0.0001
-    elif epoch > 160:
-        lr = args.lr * 0.01
-    else:
-        lr = args.lr
+    lr = args.lr * (0.1**(epoch // 30))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 

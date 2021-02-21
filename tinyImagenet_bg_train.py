@@ -23,7 +23,8 @@ from utils import *
 from ImTinyImagenet import ImTinyImagenet_bg
 import datetime
 from losses import GHMSeesawV2, LDAMLoss, FocalLoss, SeesawLoss, SeesawLoss_prior, GHMcLoss, SoftmaxGHMc, SoftmaxGHMcV2, SoftmaxGHMcV3, SeesawGHMc
-from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawBG
+from losses import SoftSeesawLoss, GradSeesawLoss_prior, GradSeesawLoss, SoftGradeSeesawLoss, EQLv2, CEloss, EQLloss, GHMSeesawBG, GHMSeesawV2
+
 
 import matplotlib.pyplot as plt
 
@@ -75,7 +76,7 @@ parser.add_argument('--gpu', default=0, type=int,
 parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
-parser.add_argument('--beta', dest='beta', default=0.5, type=float)
+parser.add_argument('--beta', dest='beta', default=1.3, type=float)
 best_acc1 = 0
 
 
@@ -261,6 +262,8 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GHMSeesawBG':
         criterion = GHMSeesawBG(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
+    elif args.loss_type == 'GHMSeesawV2':
+        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -328,7 +331,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1, 2)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 2, 2)
         optimizer.step()
 
         # measure elapsed time

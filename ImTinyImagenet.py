@@ -100,7 +100,7 @@ class ImTinyImagenet_bg(ImTinyImagenet):
                 img_num_per_cls.append(int(img_max * imb_factor))
         else:
             img_num_per_cls.extend([int(img_max)] * cls_num)
-        bg_num= min(70000, 3*np.asarray(img_num_per_cls).sum())
+        bg_num= min(70000, int(0.1*np.asarray(img_num_per_cls).sum()))
         img_num_per_cls.append(bg_num)
         return img_num_per_cls 
 

@@ -38,7 +38,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='EQL', type=str, help='loss type')
+parser.add_argument('--loss_type', default='GHMSeesawV2', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
 parser.add_argument('--imb_factor', default=200, type=int, help='imbalance factor')
 parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
@@ -75,7 +75,7 @@ parser.add_argument('--gpu', default=0, type=int,
 parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
-parser.add_argument('--beta', dest='beta', default=0.5, type=float)
+parser.add_argument('--beta', dest='beta', default=1.3, type=float)
 best_acc1 = 0
 
 

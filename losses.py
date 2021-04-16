@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import sys
+import time
 
 def weighted_softmax(x, target, weight):
     exp_x = torch.exp(x)
@@ -80,6 +81,7 @@ class GHMcLoss(nn.Module):
         self.loss_weight = loss_weight
 
     def forward(self, pred, target):
+        start = time.time()
         ori_target = target
         label_weight = torch.ones_like(target)
         if pred.dim() != target.dim():
@@ -96,17 +98,19 @@ class GHMcLoss(nn.Module):
         valid = label_weight > 0
         tot = max(valid.float().sum().item(), 1.0)
         n = 0  # n valid bins
-        for i in range(self.bins):
-            inds = (g >= edges[i]) & (g < edges[i + 1]) & valid
-            num_in_bin = inds.sum().item()
-            if num_in_bin > 0:
-                if mmt > 0:
-                    self.acc_sum[i] = mmt * self.acc_sum[i] \
-                        + (1 - mmt) * num_in_bin
-                    weights[inds] = tot / self.acc_sum[i]
-                else:
-                    weights[inds] = tot / num_in_bin
-                n += 1
+        
+        for k in range(100):
+            for i in range(self.bins):
+                inds = (g >= edges[i]) & (g < edges[i + 1]) & valid
+                num_in_bin = inds.sum().item()
+                if num_in_bin > 0:
+                    if mmt > 0:
+                        self.acc_sum[i] = mmt * self.acc_sum[i] \
+                            + (1 - mmt) * num_in_bin
+                        weights[inds] = tot / self.acc_sum[i]
+                    else:
+                        weights[inds] = tot / num_in_bin
+                    n += 1
         if n > 0:
             weights = weights / n
         if self.use_sigmoid:
@@ -118,6 +122,8 @@ class GHMcLoss(nn.Module):
 
             # loss = F.binary_cross_entropy_with_logits(
             #     pred, target, weights, reduction='sum') / tot
+        end = time.time()
+        print(end-start)
         return loss * self.loss_weight
 
 class SoftmaxGHMc(nn.Module):
@@ -705,26 +711,34 @@ class EQLv2(nn.Module):
 class CEloss(nn.Module):
     def __init__(self, weight=None, num_classes=100):
         super(CEloss, self).__init__()
-        self.weight=weight
-
+        if weight==None:
+            self.weight=weight
+        else:
+            self.weight=torch.unsqueeze(weight, 1)
         self.num_classes = num_classes
-        neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
-        pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
-        self.register_buffer('neg_grad', neg_grad)
-        self.register_buffer('pos_grad', pos_grad)
-        self.ratio = torch.zeros(size=(1, num_classes))
-        self.mm = 0.9
+        # neg_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        # pos_grad = torch.zeros(size=(1, num_classes)) + 1e-6
+        # self.register_buffer('neg_grad', neg_grad)
+        # self.register_buffer('pos_grad', pos_grad)
+        # self.ratio = torch.zeros(size=(1, num_classes))
+        # self.mm = 0.9
 
     def forward(self, x, target):
-        target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
-        grad = torch.abs(F.softmax(x, 1).detach() - target_onehot)
+        if self.weight==None:
+            return F.cross_entropy(x, target, self.weight)
+        else:
+            target_onehot = F.one_hot(target, num_classes=self.num_classes).float().detach()
+            weight = torch.mm(target_onehot, self.weight)
+            weight = weight/torch.mean(weight)
+            return torch.mean(weight * F.cross_entropy(x, target, reduction='none')) 
+        # grad = torch.abs(F.softmax(x, 1).detach() - target_onehot)
         # self.neg_grad = self.neg_grad*self.mm + (1-self.mm) * (grad * (1 - target_onehot)).sum(0)
         # self.pos_grad = self.pos_grad*self.mm + (1-self.mm) * (grad * target_onehot).sum(0)
-        self.neg_grad += (grad * (1 - target_onehot)).sum(0)
-        self.pos_grad += (grad * target_onehot).sum(0)
-        self.ratio = self.pos_grad / self.neg_grad
+        # self.neg_grad += (grad * (1 - target_onehot)).sum(0)
+        # self.pos_grad += (grad * target_onehot).sum(0)
+        # self.ratio = self.pos_grad / self.neg_grad
         # print(ratio)
-        return F.cross_entropy(x, target, self.weight)
+        # return F.cross_entropy(x, target, self.weight)
 
 
 class EQLloss(nn.Module):
@@ -828,7 +842,7 @@ class GHMSeesawV2(nn.Module):
         
         self.bins = bins
         edges = torch.arange(bins + 1).float() / bins
-        edges = torch.pow(edges, 2)
+        # edges = torch.pow(edges, 2)
         self.register_buffer('edges', edges)
 
         acc_sum = torch.zeros(bins, num_classes)

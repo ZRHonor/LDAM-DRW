@@ -38,10 +38,10 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet32)')
-parser.add_argument('--loss_type', default='GHMSeesawV2', type=str, help='loss type')
+parser.add_argument('--loss_type', default='CE', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=200, type=int, help='imbalance factor')
-parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
+parser.add_argument('--imb_factor', default=500, type=int, help='imbalance factor')
+parser.add_argument('--train_rule', default='EffectiveNumber', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -76,6 +76,7 @@ parser.add_argument('--num_classes', dest='num_classes', default=100, type=int)
 parser.add_argument('--root_log',type=str, default='log')
 parser.add_argument('--root_model', type=str, default='checkpoint')
 parser.add_argument('--beta', dest='beta', default=1.3, type=float)
+parser.add_argument('--bin', dest='bin', default=30, type=int)
 best_acc1 = 0
 
 
@@ -84,7 +85,7 @@ def main():
     args.pretrained=True
     args.num_classes = {'cifar100':100, 'cifar10':10}[args.dataset]
     curr_time = datetime.datetime.now()
-    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
+    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta), str(args.bin)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)
@@ -210,8 +211,9 @@ def main_worker(gpu, ngpus_per_node, args):
         beta = 0.9999
         effective_num = 1.0 - np.power(beta, cls_num_list)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
-        per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
+        # per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(cls_num_list)
         per_cls_weights = torch.FloatTensor(per_cls_weights).cuda(args.gpu)
+        per_cls_weights = per_cls_weights/torch.mean(per_cls_weights)
     elif args.train_rule == 'ClassBlance':
         train_sampler = None  
         per_cls_weights = 1.0 / np.array(cls_num_list)
@@ -246,7 +248,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'GradSeesawLoss_prior':
         criterion = GradSeesawLoss_prior(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GHMc':
-        criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
+        criterion = GHMcLoss(bins=args.bin, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMc':
         criterion = SoftmaxGHMc(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMcV2':
@@ -260,7 +262,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'EQL':
         criterion = EQLloss(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GHMSeesawV2':
-        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
+        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta, bins=args.bin).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return
@@ -361,67 +363,67 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     # plt.show()
     # tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
-    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
-        # bins = len(criterion.acc_sum.tolist())
-        limits = np.arange(0,30,1)/30
-        accsum = criterion.acc_sum.cpu().numpy()
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'Hist_in_GHM',
-            min=0,
-            max=1,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-        accsum = np.log(accsum+1e-8)
-        accsum = accsum-np.min(accsum)
-        accsum = accsum/np.sum(accsum)
-        temp = np.linspace(accsum.max(), accsum.min(), len(accsum))
-        accsum = accsum-temp
-        tf_writer.add_histogram_raw(
-            'LOGHist_in_GHM',
-            min=0,
-            max=1,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
-        limits = np.arange(0,args.num_classes,1)
-        accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'cls_num_list',
-            min=0,
-            max=args.num_classes,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-        accsum = np.log(accsum+1e-8)
-        accsum = accsum-np.min(accsum)
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'LOGcls_num_list',
-            min=0,
-            max=args.num_classes,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
+    # if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
+    #     # bins = len(criterion.acc_sum.tolist())
+    #     limits = np.arange(0,10,1)/10
+    #     accsum = criterion.acc_sum.cpu().numpy()
+    #     accsum = accsum/np.sum(accsum)
+    #     tf_writer.add_histogram_raw(
+    #         'Hist_in_GHM',
+    #         min=0,
+    #         max=1,
+    #         num=0,
+    #         sum=0,
+    #         sum_squares=0,
+    #         bucket_limits=limits.tolist(),  # <- note here.
+    #         bucket_counts=accsum.tolist(),
+    #         global_step=epoch
+    #     )
+    #     accsum = np.log(accsum+1e-8)
+    #     accsum = accsum-np.min(accsum)
+    #     accsum = accsum/np.sum(accsum)
+    #     temp = np.linspace(accsum.max(), accsum.min(), len(accsum))
+    #     accsum = accsum-temp
+    #     tf_writer.add_histogram_raw(
+    #         'LOGHist_in_GHM',
+    #         min=0,
+    #         max=1,
+    #         num=0,
+    #         sum=0,
+    #         sum_squares=0,
+    #         bucket_limits=limits.tolist(),  # <- note here.
+    #         bucket_counts=accsum.tolist(),
+    #         global_step=epoch
+    #     )
+    # elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
+        # limits = np.arange(0,args.num_classes,1)
+        # accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
+        # accsum = accsum/np.sum(accsum)
+        # tf_writer.add_histogram_raw(
+        #     'cls_num_list',
+        #     min=0,
+        #     max=args.num_classes,
+        #     num=0,
+        #     sum=0,
+        #     sum_squares=0,
+        #     bucket_limits=limits.tolist(),  # <- note here.
+        #     bucket_counts=accsum.tolist(),
+        #     global_step=epoch
+        # )
+        # accsum = np.log(accsum+1e-8)
+        # accsum = accsum-np.min(accsum)
+        # accsum = accsum/np.sum(accsum)
+        # tf_writer.add_histogram_raw(
+        #     'LOGcls_num_list',
+        #     min=0,
+        #     max=args.num_classes,
+        #     num=0,
+        #     sum=0,
+        #     sum_squares=0,
+        #     bucket_limits=limits.tolist(),  # <- note here.
+        #     bucket_counts=accsum.tolist(),
+        #     global_step=epoch
+        # )
 
 def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None, flag='val'):
     batch_time = AverageMeter('Time', ':6.3f')

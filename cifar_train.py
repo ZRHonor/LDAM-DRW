@@ -32,7 +32,7 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
-parser.add_argument('--dataset', default='cifar10', help='dataset setting')
+parser.add_argument('--dataset', default='cifar100', help='dataset setting')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                     choices=model_names,
                     help='model architecture: ' +
@@ -40,8 +40,8 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
                         ' (default: resnet32)')
 parser.add_argument('--loss_type', default='CE', type=str, help='loss type')
 parser.add_argument('--imb_type', default="exp", type=str, help='imbalance type')
-parser.add_argument('--imb_factor', default=100, type=int, help='imbalance factor')
-parser.add_argument('--train_rule', default='None', type=str, help='data sampling strategy for train loader')
+parser.add_argument('--imb_factor', default=500, type=int, help='imbalance factor')
+parser.add_argument('--train_rule', default='EffectiveNumber', type=str, help='data sampling strategy for train loader')
 parser.add_argument('--rand_number', default=0, type=int, help='fix random number for data sampling')
 parser.add_argument('--exp_str', default='0', type=str, help='number to indicate which experiment it is')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -248,7 +248,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'GradSeesawLoss_prior':
         criterion = GradSeesawLoss_prior(cls_num_list=cls_num_list).cuda(args.gpu)
     elif args.loss_type == 'GHMc':
-        criterion = GHMcLoss(bins=30, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
+        criterion = GHMcLoss(bins=10, momentum=0.75, use_sigmoid=True).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMc':
         criterion = SoftmaxGHMc(bins=30, momentum=0.75).cuda(args.gpu)
     elif args.loss_type == 'SoftmaxGHMcV2':
@@ -264,7 +264,7 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.loss_type == 'GHMSeesaw':
         criterion = GHMSeesaw(num_classes=num_classes).cuda(args.gpu)
     elif args.loss_type == 'GHMSeesawV2':
-        criterion = GHMSeesawV2(num_classes=num_classes).cuda(args.gpu)
+        criterion = GHMSeesawV2(num_classes=num_classes, beta=args.beta).cuda(args.gpu)
     else:
         warnings.warn('Loss type is not listed')
         return

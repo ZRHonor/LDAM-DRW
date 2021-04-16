@@ -34,7 +34,7 @@ model_names = sorted(name for name in models.__dict__
 
 parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
 parser.add_argument('--dataset', default='ImagenetLT', help='dataset setting')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet32',
+parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +

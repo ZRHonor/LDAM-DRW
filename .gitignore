@@ -5,6 +5,7 @@ checkpoint/
 log/
 runs/
 backup/
+__pycache__/
 *.pdf
 
 # IPython notebook checkpoints

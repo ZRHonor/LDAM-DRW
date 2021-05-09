@@ -3,19 +3,19 @@ import os
 import random
 import time
 import warnings
-import sys
+# import sys
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 import torch.utils.data
 import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from torchvision.transforms.transforms import RandomResizedCrop, RandomVerticalFlip, Resize
+# from torchvision.transforms.transforms import RandomResizedCrop, RandomVerticalFlip, Resize
 import models
 from tensorboardX import SummaryWriter
 from sklearn.metrics import confusion_matrix
@@ -51,7 +51,7 @@ parser.add_argument('--epochs', default=100, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=128, type=int,
+parser.add_argument('-b', '--batch-size', default=64, type=int,
                     metavar='N',
                     help='mini-batch size')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
@@ -71,7 +71,7 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--seed', default=0, type=int,
                     help='seed for initializing training. ')
-parser.add_argument('--gpu', default=0, type=int,
+parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
 parser.add_argument('--num_classes', dest='num_classes', default=1000, type=int)
 parser.add_argument('--root_log',type=str, default='log')
@@ -85,7 +85,7 @@ def main():
     args.pretrained=True
     args.num_classes = 1000
     curr_time = datetime.datetime.now()
-    args.store_name = '_'.join([str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
+    args.store_name = '_'.join([str(curr_time.year), str(curr_time.month), str(curr_time.day), str(curr_time.hour), str(curr_time.minute), 'tinyImagenet', args.arch, args.loss_type, args.train_rule, args.imb_type, str(args.imb_factor), args.exp_str, str(args.seed), str(args.beta)])
     args.imb_factor = 1.0 / args.imb_factor
     print('\n=====================================================================')
     print(args.store_name)

@@ -51,7 +51,7 @@ parser.add_argument('--epochs', default=100, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=64, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
                     help='mini-batch size')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
@@ -367,67 +367,68 @@ def train(train_loader, model, criterion, optimizer, epoch, args, log, tf_writer
     # plt.show()
     # tf_writer.add_figure('ratio_{}'.format(epoch), fig,  epoch)
     
-    if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
-        # bins = len(criterion.acc_sum.tolist())
-        limits = np.arange(0,30,1)/30
-        accsum = criterion.acc_sum.cpu().numpy()
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'Hist_in_GHM',
-            min=0,
-            max=1,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-        accsum = np.log(accsum+1e-8)
-        accsum = accsum-np.min(accsum)
-        accsum = accsum/np.sum(accsum)
-        temp = np.linspace(accsum.max(), accsum.min(), len(accsum))
-        accsum = accsum-temp
-        tf_writer.add_histogram_raw(
-            'LOGHist_in_GHM',
-            min=0,
-            max=1,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-    elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
-        limits = np.arange(0,args.num_classes,1)
-        accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'cls_num_list',
-            min=0,
-            max=args.num_classes,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
-        accsum = np.log(accsum+1e-8)
-        accsum = accsum-np.min(accsum)
-        accsum = accsum/np.sum(accsum)
-        tf_writer.add_histogram_raw(
-            'LOGcls_num_list',
-            min=0,
-            max=args.num_classes,
-            num=0,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=accsum.tolist(),
-            global_step=epoch
-        )
+    # if args.loss_type in ['GHMc', 'SoftmaxGHMc', 'SoftmaxGHMcV2', 'SoftmaxGHMcV3', 'SeesawGHMc']:
+    #     # bins = len(criterion.acc_sum.tolist())
+    #     limits = np.arange(0,30,1)/30
+    #     accsum = criterion.acc_sum.cpu().numpy()
+    #     accsum = accsum/np.sum(accsum)
+    #     # tf_writer.add_histogram_raw(
+    #     #     'Hist_in_GHM',
+    #     #     min=0,
+    #     #     max=1,
+    #     #     num=0,
+    #     #     sum=0,
+    #     #     sum_squares=0,
+    #     #     bucket_limits=limits.tolist(),  # <- note here.
+    #     #     bucket_counts=accsum.tolist(),
+    #     #     global_step=epoch
+    #     # )
+    #     accsum = np.log(accsum+1e-8)
+    #     accsum = accsum-np.min(accsum)
+    #     accsum = accsum/np.sum(accsum)
+    #     temp = np.linspace(accsum.max(), accsum.min(), len(accsum))
+    #     accsum = accsum-temp
+    #     # tf_writer.add_histogram_raw(
+    #     #     'LOGHist_in_GHM',
+    #     #     min=0,
+    #     #     max=1,
+    #     #     num=0,
+    #     #     sum=0,
+    #     #     sum_squares=0,
+    #     #     bucket_limits=limits.tolist(),  # <- note here.
+    #     #     bucket_counts=accsum.tolist(),
+    #     #     global_step=epoch
+    #     # )
+    # elif args.loss_type in ['Seesaw', 'SoftSeesaw', 'GradSeesawLoss', 'SoftGradeSeesawLoss']:
+    #     limits = np.arange(0,args.num_classes,1)
+    #     accsum = criterion.cls_num_list.cpu().numpy().reshape(-1,)
+    #     accsum = accsum/np.sum(accsum)
+    #     tf_writer.add_histogram_raw(
+    #         'cls_num_list',
+    #         min=0,
+    #         max=args.num_classes,
+    #         num=0,
+    #         sum=0,
+    #         sum_squares=0,
+    #         bucket_limits=limits.tolist(),  # <- note here.
+    #         bucket_counts=accsum.tolist(),
+    #         global_step=epoch
+    #     )
+    #     accsum = np.log(accsum+1e-8)
+    #     accsum = accsum-np.min(accsum)
+    #     accsum = accsum/np.sum(accsum)
+    #     tf_writer.add_histogram_raw(
+    #         'LOGcls_num_list',
+    #         min=0,
+    #         max=args.num_classes,
+    #         num=0,
+    #         sum=0,
+    #         sum_squares=0,
+    #         bucket_limits=limits.tolist(),  # <- note here.
+    #         bucket_counts=accsum.tolist(),
+    #         global_step=epoch
+    #     )
+
 
 def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None, flag='val'):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -510,18 +511,18 @@ def validate(val_loader, model, criterion, epoch, args, log=None, tf_writer=None
         
         tf_writer.add_scalars('acc_mean/test_' + flag + '_acc_', temp, epoch)
         tf_writer.add_scalars('acc/test_' + flag + '_cls_acc', {str(i):x for i, x in enumerate(cls_acc)}, epoch)
-        limits = np.arange(0,args.num_classes,1)
-        tf_writer.add_histogram_raw(
-            'acc_per_class',
-            min=0,
-            max=100,
-            num=cls_acc.sum()*100,
-            sum=0,
-            sum_squares=0,
-            bucket_limits=limits.tolist(),  # <- note here.
-            bucket_counts=(cls_acc*100*0.3).tolist(),
-            global_step=epoch
-        )
+        # limits = np.arange(0,args.num_classes,1)
+        # tf_writer.add_histogram_raw(
+        #     'acc_per_class',
+        #     min=0,
+        #     max=100,
+        #     num=cls_acc.sum()*100,
+        #     sum=0,
+        #     sum_squares=0,
+        #     bucket_limits=limits.tolist(),  # <- note here.
+        #     bucket_counts=(cls_acc*100*0.3).tolist(),
+        #     global_step=epoch
+        # )
         fig = plt.figure()
         plt.plot(cls_acc)
         plt.ylim(0,1)
